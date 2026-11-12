@@ -48,7 +48,8 @@ void MX_GPIO_Init(void)
   __HAL_RCC_GPIOA_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, CE_Pin|CSN_Pin, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(GPIOA, CSN_Pin, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(GPIOA, CE_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pins : CE_Pin CSN_Pin */
   GPIO_InitStruct.Pin = CE_Pin|CSN_Pin;
