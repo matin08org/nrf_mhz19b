@@ -24,6 +24,7 @@ extern SPI_HandleTypeDef hspi1;
 volatile uint32_t nrf_spi_transfer_count = 0U;
 volatile uint32_t nrf_spi_error_count = 0U;
 volatile uint32_t nrf_spi_consecutive_errors = 0U;
+volatile uint32_t nrf_status_error_count = 0U;
 volatile uint32_t nrf_tx_attempt_count = 0U;
 volatile uint32_t nrf_tx_ack_count = 0U;
 volatile uint32_t nrf_tx_max_rt_count = 0U;
@@ -42,6 +43,19 @@ volatile uint8_t nrf_last_status = 0U;
 volatile uint8_t nrf_last_fifo = 0U;
 volatile uint8_t nrf_last_observe_tx = 0U;
 volatile uint8_t nrf_last_tx_result = NRF24_TX_NONE;
+
+static uint8_t NRF_StatusValid(uint8_t status)
+{
+    /* STATUS bit 7 is reserved and must always read as zero.
+     * A floating/high MISO line commonly returns 0xFF.
+     */
+    if ((status & 0x80U) != 0U)
+    {
+        nrf_status_error_count++;
+        return 0U;
+    }
+    return 1U;
+}
 
 static void NRF_CS_Low(void)
 {
@@ -95,7 +109,6 @@ static uint8_t NRF_SPI_Transfer(uint8_t *tx,
 
     nrf_spi_consecutive_errors = 0U;
     nrf_spi_last_transfer_ok = 1U;
-    nrf_last_status = rx[0];
     return 1U;
 }
 
@@ -117,6 +130,10 @@ static uint8_t NRF_ReadReg(uint8_t reg, uint8_t *value)
 
     if (ok != 0U)
     {
+        if (NRF_StatusValid(rx[0]) == 0U)
+        {
+            return 0U;
+        }
         *value = rx[1];
         nrf_last_status = rx[0];
     }
@@ -137,6 +154,10 @@ static uint8_t NRF_WriteReg(uint8_t reg, uint8_t value)
 
     if (ok != 0U)
     {
+        if (NRF_StatusValid(rx[0]) == 0U)
+        {
+            return 0U;
+        }
         nrf_last_status = rx[0];
     }
 
@@ -167,7 +188,18 @@ static uint8_t NRF_WriteMulti(uint8_t reg,
 
     if (ok != 0U)
     {
-        nrf_last_status = status_rx;
+        if (NRF_StatusValid(status_rx) == 0U)
+        {
+            ok = 0U;
+        }
+        else
+        {
+            nrf_last_status = status_rx;
+        }
+    }
+
+    if (ok != 0U)
+    {
         /* HAL_SPI_TransmitReceive needs a writable TX buffer. The address
          * passed here is read-only, so copy it to a bounded local buffer.
          */
@@ -212,8 +244,15 @@ static uint8_t NRF_ReadMulti(uint8_t reg, uint8_t *data, uint8_t size)
 
     if (ok != 0U)
     {
-        nrf_last_status = status_rx;
-        ok = NRF_SPI_Transfer(dummy, data, size, NRF24_SPI_TIMEOUT_MS);
+        if (NRF_StatusValid(status_rx) == 0U)
+        {
+            ok = 0U;
+        }
+        else
+        {
+            nrf_last_status = status_rx;
+            ok = NRF_SPI_Transfer(dummy, data, size, NRF24_SPI_TIMEOUT_MS);
+        }
     }
 
     NRF_CS_High();
@@ -231,6 +270,10 @@ static uint8_t NRF_Command(uint8_t command)
 
     if (ok != 0U)
     {
+        if (NRF_StatusValid(rx) == 0U)
+        {
+            return 0U;
+        }
         nrf_last_status = rx;
     }
 
@@ -336,7 +379,8 @@ uint8_t NRF24_Init(void)
      */
     if (NRF_Command(NRF_CMD_NOP) == 0U)
     {
-        nrf_init_error = NRF24_INIT_ERR_SPI;
+        nrf_init_error = (nrf_spi_last_transfer_ok != 0U) ?
+                         NRF24_INIT_ERR_NO_DEVICE : NRF24_INIT_ERR_SPI;
         nrf_init_stage = NRF24_INIT_ERROR;
         return 0U;
     }
@@ -524,10 +568,18 @@ uint8_t NRF24_Transmit(const uint8_t data[NRF24_PAYLOAD_SIZE])
 
     if (ok != 0U)
     {
-        ok = NRF_SPI_Transfer(tx_payload,
-                              payload_rx,
-                              NRF24_PAYLOAD_SIZE,
-                              NRF24_SPI_TIMEOUT_MS);
+        nrf_last_status = command_rx;
+        if (NRF_StatusValid(command_rx) == 0U)
+        {
+            ok = 0U;
+        }
+        else
+        {
+            ok = NRF_SPI_Transfer(tx_payload,
+                                  payload_rx,
+                                  NRF24_PAYLOAD_SIZE,
+                                  NRF24_SPI_TIMEOUT_MS);
+        }
     }
 
     NRF_CS_High();
@@ -579,8 +631,14 @@ uint8_t NRF24_Transmit(const uint8_t data[NRF24_PAYLOAD_SIZE])
         {
             (void)NRF_WriteReg(NRF_REG_STATUS, NRF_STATUS_MAX_RT);
             (void)NRF_Command(NRF_CMD_FLUSH_TX);
-            (void)NRF_ReadReg(NRF_REG_OBSERVE_TX, (uint8_t *)&nrf_last_observe_tx);
-            (void)NRF_ReadReg(NRF_REG_FIFO_STATUS, (uint8_t *)&nrf_last_fifo);
+            if (NRF_ReadReg(NRF_REG_OBSERVE_TX, &reg_value) != 0U)
+            {
+                nrf_last_observe_tx = reg_value;
+            }
+            if (NRF_ReadReg(NRF_REG_FIFO_STATUS, &reg_value) != 0U)
+            {
+                nrf_last_fifo = reg_value;
+            }
 
             nrf_tx_max_rt_count++;
             nrf_last_tx_result = NRF24_TX_MAX_RT;
