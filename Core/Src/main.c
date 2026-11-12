@@ -84,6 +84,8 @@ static uint8_t spi_status = 0;
 /* General */
 volatile uint32_t watch_counter = 0U;
 volatile uint32_t watch_millis = 0U;
+volatile uint32_t watch_tx_count = 0U;
+volatile uint32_t watch_tx_fail_count = 0U;
 
 /* SPI: config OK is separate from a completed HAL transaction. */
 volatile uint8_t watch_spi_config_ok = 0U;
