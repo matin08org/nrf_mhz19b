@@ -109,6 +109,7 @@ volatile uint8_t watch_nrf_tx_result = 0U;
 volatile uint8_t watch_nrf_status = 0U;
 volatile uint8_t watch_nrf_fifo = 0U;
 volatile uint8_t watch_nrf_observe_tx = 0U;
+volatile uint8_t watch_nrf_reg_status = 0U;
 volatile uint8_t watch_nrf_reg_config = 0U;
 volatile uint8_t watch_nrf_reg_rf_ch = 0U;
 volatile uint8_t watch_nrf_reg_en_aa = 0U;
@@ -432,7 +433,16 @@ static void Watch_Update(void)
 
     /* SPI hardware configuration and HAL state. */
     watch_spi_config_ok =
-        (hspi1.Init.DataSize == SPI_DATASIZE_8BIT) ? 1U : 0U;
+        ((hspi1.Init.Mode == SPI_MODE_MASTER) &&
+         (hspi1.Init.Direction == SPI_DIRECTION_2LINES) &&
+         (hspi1.Init.DataSize == SPI_DATASIZE_8BIT) &&
+         (hspi1.Init.CLKPolarity == SPI_POLARITY_LOW) &&
+         (hspi1.Init.CLKPhase == SPI_PHASE_1EDGE) &&
+         (hspi1.Init.NSS == SPI_NSS_SOFT) &&
+         (hspi1.Init.BaudRatePrescaler == SPI_BAUDRATEPRESCALER_8) &&
+         (hspi1.Init.FirstBit == SPI_FIRSTBIT_MSB) &&
+         (hspi1.Init.TIMode == SPI_TIMODE_DISABLE) &&
+         (hspi1.Init.CRCCalculation == SPI_CRCCALCULATION_DISABLE)) ? 1U : 0U;
     watch_spi_hal_ready =
         (hspi1.State == HAL_SPI_STATE_READY) ? 1U : 0U;
     watch_spi_last_transfer_ok = nrf_spi_last_transfer_ok;
@@ -461,6 +471,7 @@ static void Watch_Update(void)
 
     if (nrf_detected != 0U)
     {
+        watch_nrf_reg_status = NRF24_ReadRegister(NRF_REG_STATUS);
         watch_nrf_reg_config = NRF24_ReadRegister(NRF_REG_CONFIG);
         watch_nrf_reg_rf_ch = NRF24_ReadRegister(NRF_REG_RF_CH);
         watch_nrf_reg_en_aa = NRF24_ReadRegister(NRF_REG_EN_AA);
