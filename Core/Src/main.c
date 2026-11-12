@@ -95,6 +95,8 @@ volatile uint8_t watch_spi_last_hal_status = 0U;
 volatile uint32_t watch_spi_hal_error = 0U;
 volatile uint32_t watch_spi_transfers = 0U;
 volatile uint32_t watch_spi_errors = 0U;
+volatile uint32_t watch_nrf_status_errors = 0U;
+volatile uint32_t watch_nrf_status_error_streak = 0U;
 
 /* nRF24: detection/configuration are local; LINK_ACK requires a receiver. */
 volatile uint8_t watch_nrf_initialized = 0U;
@@ -348,9 +350,11 @@ static void NRF_Process(void)
         }
 
         /* Re-enter initialization if the SPI bus itself repeatedly fails. */
-        if (nrf_spi_consecutive_errors >= 3U)
+        if ((nrf_spi_consecutive_errors >= 3U) ||
+            (nrf_status_consecutive_errors >= 3U))
         {
             nrf_initialized = 0U;
+            nrf_detected = 0U;
             nrf_config_ok = 0U;
         }
         return;
@@ -397,9 +401,11 @@ static void NRF_Process(void)
         watch_tx_fail_count++;
     }
 
-    if (nrf_spi_consecutive_errors >= 3U)
+    if ((nrf_spi_consecutive_errors >= 3U) ||
+        (nrf_status_consecutive_errors >= 3U))
     {
         nrf_initialized = 0U;
+        nrf_detected = 0U;
         nrf_config_ok = 0U;
     }
 }
@@ -434,6 +440,8 @@ static void Watch_Update(void)
     watch_spi_hal_error = nrf_spi_last_hal_error;
     watch_spi_transfers = nrf_spi_transfer_count;
     watch_spi_errors = nrf_spi_error_count;
+    watch_nrf_status_errors = nrf_status_error_count;
+    watch_nrf_status_error_streak = nrf_status_consecutive_errors;
 
     /* Radio status and counters. */
     watch_nrf_initialized = nrf_initialized;
