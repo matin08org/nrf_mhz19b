@@ -486,7 +486,9 @@ uint8_t NRF24_Transmit(const uint8_t data[NRF24_PAYLOAD_SIZE])
 {
     uint8_t command = NRF_CMD_W_TX_PAYLOAD;
     uint8_t command_rx = 0U;
+    uint8_t tx_payload[NRF24_PAYLOAD_SIZE];
     uint8_t payload_rx[NRF24_PAYLOAD_SIZE];
+    uint8_t reg_value = 0U;
     uint8_t status = 0U;
     uint8_t ok;
     uint32_t start_tick;
@@ -515,12 +517,14 @@ uint8_t NRF24_Transmit(const uint8_t data[NRF24_PAYLOAD_SIZE])
         return 0U;
     }
 
+    memcpy(tx_payload, data, NRF24_PAYLOAD_SIZE);
+
     NRF_CS_Low();
     ok = NRF_SPI_Transfer(&command, &command_rx, 1U, NRF24_SPI_TIMEOUT_MS);
 
     if (ok != 0U)
     {
-        ok = NRF_SPI_Transfer((uint8_t *)data,
+        ok = NRF_SPI_Transfer(tx_payload,
                               payload_rx,
                               NRF24_PAYLOAD_SIZE,
                               NRF24_SPI_TIMEOUT_MS);
@@ -557,8 +561,14 @@ uint8_t NRF24_Transmit(const uint8_t data[NRF24_PAYLOAD_SIZE])
         if ((status & NRF_STATUS_TX_DS) != 0U)
         {
             (void)NRF_WriteReg(NRF_REG_STATUS, NRF_STATUS_TX_DS);
-            (void)NRF_ReadReg(NRF_REG_OBSERVE_TX, (uint8_t *)&nrf_last_observe_tx);
-            (void)NRF_ReadReg(NRF_REG_FIFO_STATUS, (uint8_t *)&nrf_last_fifo);
+            if (NRF_ReadReg(NRF_REG_OBSERVE_TX, &reg_value) != 0U)
+            {
+                nrf_last_observe_tx = reg_value;
+            }
+            if (NRF_ReadReg(NRF_REG_FIFO_STATUS, &reg_value) != 0U)
+            {
+                nrf_last_fifo = reg_value;
+            }
 
             nrf_tx_ack_count++;
             nrf_last_tx_result = NRF24_TX_ACK;
@@ -581,8 +591,14 @@ uint8_t NRF24_Transmit(const uint8_t data[NRF24_PAYLOAD_SIZE])
     }
 
     (void)NRF_Command(NRF_CMD_FLUSH_TX);
-    (void)NRF_ReadReg(NRF_REG_OBSERVE_TX, (uint8_t *)&nrf_last_observe_tx);
-    (void)NRF_ReadReg(NRF_REG_FIFO_STATUS, (uint8_t *)&nrf_last_fifo);
+    if (NRF_ReadReg(NRF_REG_OBSERVE_TX, &reg_value) != 0U)
+    {
+        nrf_last_observe_tx = reg_value;
+    }
+    if (NRF_ReadReg(NRF_REG_FIFO_STATUS, &reg_value) != 0U)
+    {
+        nrf_last_fifo = reg_value;
+    }
 
     nrf_tx_timeout_count++;
     nrf_last_tx_result = NRF24_TX_TIMEOUT;
