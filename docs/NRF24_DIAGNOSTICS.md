@@ -41,6 +41,7 @@ separate supply with substantially more peak-current margin.
    - `watch_nrf_tx_attempts`, `watch_nrf_tx_acks`
    - `watch_nrf_tx_max_rt`, `watch_nrf_tx_timeouts`
    - `watch_spi_transfers`, `watch_spi_errors`
+   - `watch_nrf_status_errors`, `watch_nrf_status_error_streak`
 3. Wait for `watch_nrf_detected == 1` and `watch_nrf_config_ok == 1`.
 4. Set `watch_nrf_test_request = 1`. The firmware sends one packet whose
    first bytes are ASCII `NRF24_LINK_TEST`.
@@ -55,6 +56,8 @@ separate supply with substantially more peak-current margin.
 - `watch_spi_config_ok = 1`: STM32 SPI is configured for 8-bit frames.
 - `watch_spi_last_transfer_ok = 1`: the last HAL SPI transfer completed.
   This alone does not prove that the external wires are correct.
+- The driver rejects a STATUS byte whose reserved bit 7 is high. A floating MISO
+  line often returns 0xFF; it is not allowed to masquerade as TX success.
 - `watch_nrf_detected = 1`: the radio responded to SPI and passed two
   RF_CH write/read-back tests (0x2A and 0x55). This verifies the MCU SPI
   peripheral plus the connected radio's SPI register path.
