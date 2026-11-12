@@ -64,8 +64,11 @@ static uint8_t report_valid = 0;
 #define CO2_REQUEST_INTERVAL_MS  2000U
 #define NRF_REPORT_INTERVAL_MS   2000U
 
-static uint32_t last_request_tick = 0;
-static uint32_t last_report_tick = 0;
+static uint32_t last_request_tick = 0U;
+static uint32_t last_report_tick = 0U;
+static uint32_t last_nrf_init_tick = 0U;
+
+#define NRF_INIT_RETRY_INTERVAL_MS 1000U
 
 
 /* ================= NRF STATUS ================= */
@@ -78,43 +81,60 @@ static uint8_t spi_status = 0;
 
 /* ================= WATCH VARIABLES ================= */
 
-/* General debug */
+/* General */
+volatile uint32_t watch_counter = 0U;
+volatile uint32_t watch_millis = 0U;
+volatile uint32_t watch_tx_count = 0U;
+volatile uint32_t watch_tx_fail_count = 0U;
 
-volatile uint32_t watch_counter = 0;
-volatile uint32_t watch_test = 12345;
-volatile float watch_float = 25.5f;
-volatile uint32_t watch_millis = 0;
+/* SPI: config OK is separate from a completed HAL transaction. */
+volatile uint8_t watch_spi_config_ok = 0U;
+volatile uint8_t watch_spi_hal_ready = 0U;
+volatile uint8_t watch_spi_last_transfer_ok = 0U;
+volatile uint8_t watch_spi_last_hal_status = 0U;
+volatile uint32_t watch_spi_hal_error = 0U;
+volatile uint32_t watch_spi_transfers = 0U;
+volatile uint32_t watch_spi_errors = 0U;
+volatile uint32_t watch_nrf_status_errors = 0U;
+volatile uint32_t watch_nrf_status_error_streak = 0U;
 
+/* nRF24: detection/configuration are local; LINK_ACK requires a receiver. */
+volatile uint8_t watch_nrf_initialized = 0U;
+volatile uint8_t watch_nrf_detected = 0U;
+volatile uint8_t watch_nrf_config_ok = 0U;
+volatile uint8_t watch_nrf_init_stage = 0U;
+volatile uint8_t watch_nrf_init_error = 0U;
+volatile uint8_t watch_nrf_link_ack = 0U;
+volatile uint8_t watch_nrf_tx_result = 0U;
+volatile uint8_t watch_nrf_status = 0U;
+volatile uint8_t watch_nrf_fifo = 0U;
+volatile uint8_t watch_nrf_observe_tx = 0U;
+volatile uint8_t watch_nrf_reg_status = 0U;
+volatile uint8_t watch_nrf_reg_config = 0U;
+volatile uint8_t watch_nrf_reg_rf_ch = 0U;
+volatile uint8_t watch_nrf_reg_en_aa = 0U;
+volatile uint8_t watch_nrf_reg_rf_setup = 0U;
+volatile uint8_t watch_nrf_reg_setup_retr = 0U;
+volatile uint8_t watch_nrf_reg_fifo_status = 0U;
+volatile uint32_t watch_nrf_tx_attempts = 0U;
+volatile uint32_t watch_nrf_tx_acks = 0U;
+volatile uint32_t watch_nrf_tx_max_rt = 0U;
+volatile uint32_t watch_nrf_tx_timeouts = 0U;
 
-/* NRF debug */
+/* Set watch_nrf_test_request=1 in the debugger to send one fixed test frame. */
+volatile uint8_t watch_nrf_test_request = 0U;
+volatile uint8_t watch_nrf_test_done = 0U;
+volatile uint8_t watch_nrf_test_result = 0U;
 
-volatile uint8_t watch_spi_status = 0;
-volatile uint8_t watch_nrf_initialized = 0;
-volatile uint8_t watch_is_transmit = 0;
-volatile uint8_t watch_nrf_tx_result = 0;
-
-volatile uint8_t watch_nrf_status = 0;
-volatile uint8_t watch_nrf_fifo = 0;
-
-volatile uint32_t watch_spi_errors = 0;
-
-volatile uint32_t watch_tx_count = 0;
-volatile uint32_t watch_tx_fail_count = 0;
-
-
-/* Sensor debug */
-
-volatile uint16_t watch_co2 = 0;
-
-volatile uint8_t watch_sensor_ready = 0;
-volatile uint8_t watch_sensor_busy = 0;
-volatile uint8_t watch_request_pending = 0;
-volatile uint8_t watch_report_valid = 0;
-volatile uint8_t watch_sensor_status = 0;
-
-volatile uint32_t watch_request_count = 0;
-volatile uint32_t watch_response_count = 0;
-
+/* Sensor */
+volatile uint16_t watch_co2 = 0U;
+volatile uint8_t watch_sensor_ready = 0U;
+volatile uint8_t watch_sensor_busy = 0U;
+volatile uint8_t watch_request_pending = 0U;
+volatile uint8_t watch_report_valid = 0U;
+volatile uint8_t watch_sensor_status = 0U;
+volatile uint32_t watch_request_count = 0U;
+volatile uint32_t watch_response_count = 0U;
 
 /* USER CODE END PV */
 
@@ -282,88 +302,123 @@ static void NRF_Process(void)
 {
     uint32_t now = HAL_GetTick();
 
-    /*
-     * Transmission interval
-     */
+    /* Detect a disconnected device before waiting for the next app packet. */
+    if ((nrf_initialized != 0U) &&
+        ((nrf_spi_consecutive_errors >= 3U) ||
+         (nrf_status_consecutive_errors >= 3U)))
+    {
+        nrf_initialized = 0U;
+        nrf_detected = 0U;
+        nrf_config_ok = 0U;
+        is_transmit = 0U;
+    }
 
-    if ((uint32_t)(now - last_report_tick) <
-        NRF_REPORT_INTERVAL_MS)
+    /* Retry initialization when the radio is absent or was disconnected. */
+    if (nrf_initialized == 0U)
+    {
+        if ((uint32_t)(now - last_nrf_init_tick) < NRF_INIT_RETRY_INTERVAL_MS)
+        {
+            return;
+        }
+
+        last_nrf_init_tick = now;
+        spi_status = NRF24_Init();
+
+        if (spi_status != 0U)
+        {
+            nrf_initialized = NRF24_TxMode(txAddress, NRF24_CHANNEL);
+        }
+        else
+        {
+            nrf_initialized = 0U;
+        }
+
+        is_transmit = 0U;
+        return;
+    }
+
+    /* A debugger can request a one-shot RF test without waiting for CO2. */
+    if (watch_nrf_test_request != 0U)
+    {
+        uint8_t test_payload[NRF24_PAYLOAD_SIZE] = {0U};
+
+        watch_nrf_test_request = 0U;
+        watch_nrf_test_done = 0U;
+        memcpy(test_payload, "NRF24_LINK_TEST",
+               sizeof("NRF24_LINK_TEST") - 1U);
+        test_payload[31] = (uint8_t)(now & 0xFFU);
+
+        watch_nrf_test_result = NRF24_Transmit(test_payload);
+        watch_nrf_test_done = 1U;
+        is_transmit = watch_nrf_test_result;
+
+        if (watch_nrf_test_result != 0U)
+        {
+            watch_tx_count++;
+        }
+        else
+        {
+            watch_tx_fail_count++;
+        }
+
+        /* Re-enter initialization if the SPI bus itself repeatedly fails. */
+        if ((nrf_spi_consecutive_errors >= 3U) ||
+            (nrf_status_consecutive_errors >= 3U))
+        {
+            nrf_initialized = 0U;
+            nrf_detected = 0U;
+            nrf_config_ok = 0U;
+        }
+        return;
+    }
+
+    if ((uint32_t)(now - last_report_tick) < NRF_REPORT_INTERVAL_MS)
     {
         return;
     }
 
     last_report_tick = now;
-
-
-    /*
-     * Clear TX buffer
-     */
-
     memset(txData, 0, sizeof(txData));
-
-
-    /*
-     * Build CO2 message
-     */
 
     if (!MHZ19_IsReady(&co2_sensor))
     {
-        snprintf(
-            (char *)txData,
-            sizeof(txData),
-            "CO2=ERR,WARMUP"
-        );
+        (void)snprintf((char *)txData, sizeof(txData), "CO2=ERR,WARMUP");
     }
-
-    else if (report_valid)
+    else if (report_valid != 0U)
     {
-        snprintf(
-            (char *)txData,
-            sizeof(txData),
-            "CO2=%uppm",
-            (unsigned int)report_ppm
-        );
+        (void)snprintf((char *)txData, sizeof(txData), "CO2=%uppm",
+                       (unsigned int)report_ppm);
     }
-
     else
     {
-        const char *err =
-            MHZ19_GetErrorText(report_status);
+        const char *err = MHZ19_GetErrorText(report_status);
 
-        if (report_status == MHZ19_STATUS_OK ||
-            report_status == MHZ19_STATUS_WARMING_UP)
+        if ((report_status == MHZ19_STATUS_OK) ||
+            (report_status == MHZ19_STATUS_WARMING_UP))
         {
             err = "NO_VALID_DATA";
         }
 
-        snprintf(
-            (char *)txData,
-            sizeof(txData),
-            "CO2=ERR,%s",
-            err
-        );
+        (void)snprintf((char *)txData, sizeof(txData), "CO2=ERR,%s", err);
     }
 
-
-    /*
-     * Send NRF packet
-     */
-
-    if (NRF24_Transmit(txData))
+    if (NRF24_Transmit(txData) != 0U)
     {
-        is_transmit = 1;
-
-        watch_nrf_tx_result = 1;
-
+        is_transmit = 1U;
         watch_tx_count++;
     }
     else
     {
-        is_transmit = 0;
-
-        watch_nrf_tx_result = 0;
-
+        is_transmit = 0U;
         watch_tx_fail_count++;
+    }
+
+    if ((nrf_spi_consecutive_errors >= 3U) ||
+        (nrf_status_consecutive_errors >= 3U))
+    {
+        nrf_initialized = 0U;
+        nrf_detected = 0U;
+        nrf_config_ok = 0U;
     }
 }
 
@@ -374,49 +429,81 @@ static void NRF_Process(void)
 
 static void Watch_Update(void)
 {
+    static uint32_t last_watch_tick = 0U;
+    uint32_t now = HAL_GetTick();
+
+    /* Avoid flooding the radio's SPI bus while the debugger is attached. */
+    if ((uint32_t)(now - last_watch_tick) < 250U)
+    {
+        return;
+    }
+    last_watch_tick = now;
+
     watch_counter++;
+    watch_millis = now;
 
-    watch_test++;
+    /* SPI hardware configuration and HAL state. */
+    watch_spi_config_ok =
+        ((hspi1.Init.Mode == SPI_MODE_MASTER) &&
+         (hspi1.Init.Direction == SPI_DIRECTION_2LINES) &&
+         (hspi1.Init.DataSize == SPI_DATASIZE_8BIT) &&
+         (hspi1.Init.CLKPolarity == SPI_POLARITY_LOW) &&
+         (hspi1.Init.CLKPhase == SPI_PHASE_1EDGE) &&
+         (hspi1.Init.NSS == SPI_NSS_SOFT) &&
+         (hspi1.Init.BaudRatePrescaler == SPI_BAUDRATEPRESCALER_8) &&
+         (hspi1.Init.FirstBit == SPI_FIRSTBIT_MSB) &&
+         (hspi1.Init.TIMode == SPI_TIMODE_DISABLE) &&
+         (hspi1.Init.CRCCalculation == SPI_CRCCALCULATION_DISABLE)) ? 1U : 0U;
+    watch_spi_hal_ready =
+        (hspi1.State == HAL_SPI_STATE_READY) ? 1U : 0U;
+    watch_spi_last_transfer_ok = nrf_spi_last_transfer_ok;
+    watch_spi_last_hal_status = nrf_spi_last_hal_status;
+    watch_spi_hal_error = nrf_spi_last_hal_error;
+    watch_spi_transfers = nrf_spi_transfer_count;
+    watch_spi_errors = nrf_spi_error_count;
+    watch_nrf_status_errors = nrf_status_error_count;
+    watch_nrf_status_error_streak = nrf_status_consecutive_errors;
 
-    watch_float += 0.1f;
+    /* Radio status and counters. */
+    watch_nrf_initialized = nrf_initialized;
+    watch_nrf_detected = nrf_detected;
+    watch_nrf_config_ok = nrf_config_ok;
+    watch_nrf_init_stage = nrf_init_stage;
+    watch_nrf_init_error = nrf_init_error;
+    watch_nrf_link_ack = (nrf_last_tx_result == NRF24_TX_ACK) ? 1U : 0U;
+    watch_nrf_tx_result = nrf_last_tx_result;
+    watch_nrf_status = nrf_last_status;
+    watch_nrf_fifo = nrf_last_fifo;
+    watch_nrf_observe_tx = nrf_last_observe_tx;
+    watch_nrf_tx_attempts = nrf_tx_attempt_count;
+    watch_nrf_tx_acks = nrf_tx_ack_count;
+    watch_nrf_tx_max_rt = nrf_tx_max_rt_count;
+    watch_nrf_tx_timeouts = nrf_tx_timeout_count;
 
-    watch_millis = HAL_GetTick();
+    {
+        static uint32_t last_radio_register_watch_tick = 0U;
 
+        if ((nrf_detected != 0U) &&
+            ((uint32_t)(now - last_radio_register_watch_tick) >= 1000U))
+        {
+            last_radio_register_watch_tick = now;
+            watch_nrf_reg_status = NRF24_ReadRegister(NRF_REG_STATUS);
+            watch_nrf_reg_config = NRF24_ReadRegister(NRF_REG_CONFIG);
+            watch_nrf_reg_rf_ch = NRF24_ReadRegister(NRF_REG_RF_CH);
+            watch_nrf_reg_en_aa = NRF24_ReadRegister(NRF_REG_EN_AA);
+            watch_nrf_reg_rf_setup = NRF24_ReadRegister(NRF_REG_RF_SETUP);
+            watch_nrf_reg_setup_retr = NRF24_ReadRegister(NRF_REG_SETUP_RETR);
+            watch_nrf_reg_fifo_status = NRF24_ReadRegister(NRF_REG_FIFO_STATUS);
+        }
+    }
 
     /* Sensor */
-
     watch_co2 = report_ppm;
-
-    watch_sensor_ready =
-        MHZ19_IsReady(&co2_sensor);
-
-    watch_sensor_busy =
-        MHZ19_IsBusy(&co2_sensor);
-
-    watch_request_pending =
-        request_pending;
-
-    watch_report_valid =
-        report_valid;
-
-    watch_sensor_status =
-        (uint8_t)report_status;
-
-
-    /* NRF */
-
-    watch_spi_status = spi_status;
-
-    watch_nrf_initialized =
-        nrf_initialized;
-
-    watch_is_transmit = is_transmit;
-
-    watch_nrf_status = nrf_last_status;
-
-    watch_nrf_fifo = nrf_last_fifo;
-
-    watch_spi_errors = nrf_spi_error_count;
+    watch_sensor_ready = MHZ19_IsReady(&co2_sensor);
+    watch_sensor_busy = MHZ19_IsBusy(&co2_sensor);
+    watch_request_pending = request_pending;
+    watch_report_valid = report_valid;
+    watch_sensor_status = (uint8_t)report_status;
 }
 
 
@@ -467,22 +554,11 @@ int main(void)
 
 
     /*
-     * Initialize NRF
+     * NRF initialization is performed by NRF_Process().
+     * It retries once per second if the radio is absent or disconnected.
      */
-
-    spi_status = NRF24_Init();
-
-    if (spi_status)
-    {
-        nrf_initialized = NRF24_TxMode(
-            txAddress,
-            NRF24_CHANNEL
-        );
-    }
-    else
-    {
-        nrf_initialized = 0;
-    }
+    nrf_initialized = 0U;
+    last_nrf_init_tick = 0U;
 
 
     /* USER CODE END 2 */
@@ -502,13 +578,9 @@ int main(void)
 
 
         /*
-         * NRF24
+         * NRF24: initialization/recovery, diagnostics and transmissions.
          */
-
-        if (nrf_initialized)
-        {
-            NRF_Process();
-        }
+        NRF_Process();
 
 
         /*
