@@ -82,6 +82,7 @@
 extern volatile uint32_t nrf_spi_transfer_count;
 extern volatile uint32_t nrf_spi_error_count;
 extern volatile uint32_t nrf_spi_consecutive_errors;
+extern volatile uint32_t nrf_status_error_count;
 extern volatile uint32_t nrf_tx_attempt_count;
 extern volatile uint32_t nrf_tx_ack_count;
 extern volatile uint32_t nrf_tx_max_rt_count;
