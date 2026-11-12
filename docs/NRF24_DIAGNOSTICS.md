@@ -53,7 +53,9 @@ separate supply with substantially more peak-current margin.
 
 ## How to interpret the checks
 
-- `watch_spi_config_ok = 1`: STM32 SPI is configured for 8-bit frames.
+- `watch_spi_config_ok = 1`: SPI1 matches all driver requirements (master,
+  2-line full duplex, 8-bit, mode 0, software NSS, /8 prescaler, MSB first,
+  hardware TI mode and CRC disabled).
 - `watch_spi_last_transfer_ok = 1`: the last HAL SPI transfer completed.
   This alone does not prove that the external wires are correct.
 - The driver rejects a STATUS byte whose reserved bit 7 is high. A floating MISO
@@ -84,6 +86,18 @@ settings:
 
 The transmitter sets both `TX_ADDR` and `RX_ADDR_P0` to the same five-byte
 address so it can receive the ACK on pipe 0.
+
+## Initialization stage / error codes
+
+`watch_nrf_init_stage`:
+- 0: idle; 1: SPI probe; 2: chip/register-path probe
+- 3: register configuration; 4: TX mode/address setup; 5: ready
+- 255: initialization error
+
+`watch_nrf_init_error`:
+- 0: no error; 1: HAL/SPI transfer error; 2: no responding nRF device
+- 3: register configuration/read-back failure; 4: address read-back failure
+- 5: power-up/configuration failure
 
 ## Result codes
 
