@@ -302,6 +302,17 @@ static void NRF_Process(void)
 {
     uint32_t now = HAL_GetTick();
 
+    /* Detect a disconnected device before waiting for the next app packet. */
+    if ((nrf_initialized != 0U) &&
+        ((nrf_spi_consecutive_errors >= 3U) ||
+         (nrf_status_consecutive_errors >= 3U)))
+    {
+        nrf_initialized = 0U;
+        nrf_detected = 0U;
+        nrf_config_ok = 0U;
+        is_transmit = 0U;
+    }
+
     /* Retry initialization when the radio is absent or was disconnected. */
     if (nrf_initialized == 0U)
     {
@@ -469,15 +480,21 @@ static void Watch_Update(void)
     watch_nrf_tx_max_rt = nrf_tx_max_rt_count;
     watch_nrf_tx_timeouts = nrf_tx_timeout_count;
 
-    if (nrf_detected != 0U)
     {
-        watch_nrf_reg_status = NRF24_ReadRegister(NRF_REG_STATUS);
-        watch_nrf_reg_config = NRF24_ReadRegister(NRF_REG_CONFIG);
-        watch_nrf_reg_rf_ch = NRF24_ReadRegister(NRF_REG_RF_CH);
-        watch_nrf_reg_en_aa = NRF24_ReadRegister(NRF_REG_EN_AA);
-        watch_nrf_reg_rf_setup = NRF24_ReadRegister(NRF_REG_RF_SETUP);
-        watch_nrf_reg_setup_retr = NRF24_ReadRegister(NRF_REG_SETUP_RETR);
-        watch_nrf_reg_fifo_status = NRF24_ReadRegister(NRF_REG_FIFO_STATUS);
+        static uint32_t last_radio_register_watch_tick = 0U;
+
+        if ((nrf_detected != 0U) &&
+            ((uint32_t)(now - last_radio_register_watch_tick) >= 1000U))
+        {
+            last_radio_register_watch_tick = now;
+            watch_nrf_reg_status = NRF24_ReadRegister(NRF_REG_STATUS);
+            watch_nrf_reg_config = NRF24_ReadRegister(NRF_REG_CONFIG);
+            watch_nrf_reg_rf_ch = NRF24_ReadRegister(NRF_REG_RF_CH);
+            watch_nrf_reg_en_aa = NRF24_ReadRegister(NRF_REG_EN_AA);
+            watch_nrf_reg_rf_setup = NRF24_ReadRegister(NRF_REG_RF_SETUP);
+            watch_nrf_reg_setup_retr = NRF24_ReadRegister(NRF_REG_SETUP_RETR);
+            watch_nrf_reg_fifo_status = NRF24_ReadRegister(NRF_REG_FIFO_STATUS);
+        }
     }
 
     /* Sensor */
