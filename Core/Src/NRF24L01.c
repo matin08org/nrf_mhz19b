@@ -25,6 +25,7 @@ volatile uint32_t nrf_spi_transfer_count = 0U;
 volatile uint32_t nrf_spi_error_count = 0U;
 volatile uint32_t nrf_spi_consecutive_errors = 0U;
 volatile uint32_t nrf_status_error_count = 0U;
+volatile uint32_t nrf_status_consecutive_errors = 0U;
 volatile uint32_t nrf_tx_attempt_count = 0U;
 volatile uint32_t nrf_tx_ack_count = 0U;
 volatile uint32_t nrf_tx_max_rt_count = 0U;
@@ -52,8 +53,11 @@ static uint8_t NRF_StatusValid(uint8_t status)
     if ((status & 0x80U) != 0U)
     {
         nrf_status_error_count++;
+        nrf_status_consecutive_errors++;
         return 0U;
     }
+
+    nrf_status_consecutive_errors = 0U;
     return 1U;
 }
 
