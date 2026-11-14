@@ -1,0 +1,10 @@
+name: Radio protocol tests
+on: [push, pull_request]
+jobs:
+  host-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile real driver and protocol with sanitizers
+        run: gcc -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -DNRF24_HOST_TEST -ICore/Inc Core/Src/NRF24L01.c tests/radio_test.c -o radio_test
+      - run: ./radio_test && ./radio_test wrap
