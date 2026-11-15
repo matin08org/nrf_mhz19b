@@ -1,668 +1,212 @@
-#include "main.h"
 #include "NRF24L01.h"
-
 #include <string.h>
+#ifndef NRF24_HOST_TEST
+#include "main.h"
+#include "nrf24_board.h"
+extern SPI_HandleTypeDef NRF24_BOARD_SPI;
+#endif
+static const uint8_t address[5]={0xEE,0xDD,0xCC,0xBB,0xAA};
+#define REG_CONFIG 0x00U
+#define REG_STATUS 0x07U
+#define REG_FIFO 0x17U
+#define RX_DR 0x40U
+#define TX_DS 0x20U
+#define MAX_RT 0x10U
 
-/* Hardware mapping is defined by main.h / CubeMX:
- * CE  = PA3, CSN = PA4, SCK = PA5, MISO = PA6, MOSI = PA7.
- */
-extern SPI_HandleTypeDef hspi1;
-
-#define NRF_SPI                 (&hspi1)
-#define NRF_CE_PORT             CE_GPIO_Port
-#define NRF_CE_PIN              CE_Pin
-#define NRF_CSN_PORT            CSN_GPIO_Port
-#define NRF_CSN_PIN             CSN_Pin
-
-#define NRF_CONFIG_POWERDOWN    (NRF_CONFIG_EN_CRC | NRF_CONFIG_CRCO)
-#define NRF_CONFIG_TX_READY     (NRF_CONFIG_EN_CRC | NRF_CONFIG_CRCO | NRF_CONFIG_PWR_UP)
-#define NRF_EN_AA_PIPE0         0x01U
-#define NRF_EN_RX_PIPE0         0x01U
-#define NRF_SETUP_RETR_VALUE    0x2FU /* 750 us retry delay, 15 retries */
-#define NRF_RF_SETUP_1MBPS_0DBM 0x06U
-
-volatile uint32_t nrf_spi_transfer_count = 0U;
-volatile uint32_t nrf_spi_error_count = 0U;
-volatile uint32_t nrf_spi_consecutive_errors = 0U;
-volatile uint32_t nrf_status_error_count = 0U;
-volatile uint32_t nrf_status_consecutive_errors = 0U;
-volatile uint32_t nrf_tx_attempt_count = 0U;
-volatile uint32_t nrf_tx_ack_count = 0U;
-volatile uint32_t nrf_tx_max_rt_count = 0U;
-volatile uint32_t nrf_tx_timeout_count = 0U;
-
-volatile uint8_t nrf_spi_last_transfer_ok = 0U;
-volatile uint8_t nrf_spi_last_hal_status = (uint8_t)HAL_OK;
-volatile uint32_t nrf_spi_last_hal_error = HAL_SPI_ERROR_NONE;
-
-volatile uint8_t nrf_detected = 0U;
-volatile uint8_t nrf_config_ok = 0U;
-volatile uint8_t nrf_init_stage = NRF24_INIT_IDLE;
-volatile uint8_t nrf_init_error = NRF24_INIT_ERR_NONE;
-
-volatile uint8_t nrf_last_status = 0U;
-volatile uint8_t nrf_last_fifo = 0U;
-volatile uint8_t nrf_last_observe_tx = 0U;
-volatile uint8_t nrf_last_tx_result = NRF24_TX_NONE;
-
-static uint8_t NRF_StatusValid(uint8_t status)
+static uint8_t Exchange(NRF24_Radio *n,uint8_t command,const uint8_t *data,uint8_t *out,uint8_t length)
 {
-    /* STATUS bit 7 is reserved and must always read as zero.
-     * A floating/high MISO line commonly returns 0xFF.
-     */
-    if ((status & 0x80U) != 0U)
-    {
-        nrf_status_error_count++;
-        nrf_status_consecutive_errors++;
-        return 0U;
-    }
-
-    nrf_status_consecutive_errors = 0U;
+    uint8_t tx[33],rx[33];
+    if(length>32U) return 0U;
+    tx[0]=command;
+    for(uint8_t i=0;i<length;i++) tx[i+1U]=data?data[i]:0xFFU;
+    n->io.csn(n->io.context,0U);
+    uint8_t ok=n->io.transfer(n->io.context,tx,rx,(uint8_t)(length+1U));
+    n->io.csn(n->io.context,1U);
+    if(!ok || (rx[0]&0x80U)) { n->stats.spi_errors++; return 0U; }
+    n->status=rx[0];
+    if(out) memcpy(out,rx+1,length);
     return 1U;
 }
-
-static void NRF_CS_Low(void)
+static uint8_t ReadReg(NRF24_Radio *n,uint8_t reg,uint8_t *v) { return Exchange(n,reg&31U,0,v,1U); }
+static uint8_t WriteReg(NRF24_Radio *n,uint8_t reg,uint8_t v) { return Exchange(n,(reg&31U)|0x20U,&v,0,1U); }
+static uint8_t Command(NRF24_Radio *n,uint8_t cmd) { return Exchange(n,cmd,0,0,0U); }
+static uint8_t CheckReg(NRF24_Radio *n,uint8_t reg,uint8_t expected)
 {
-    HAL_GPIO_WritePin(NRF_CSN_PORT, NRF_CSN_PIN, GPIO_PIN_RESET);
+    uint8_t value=0;
+    return ReadReg(n,reg,&value) && value==expected;
 }
-
-static void NRF_CS_High(void)
+static void Complete(NRF24_Radio *n,NRF24_TxResult result)
 {
-    HAL_GPIO_WritePin(NRF_CSN_PORT, NRF_CSN_PIN, GPIO_PIN_SET);
+    n->last_tx_result=result;
+    n->completed_tag=n->active_tag;
+    n->stats.tx_completed++;
 }
-
-void NRF24_CE_Enable(void)
+static void Recover(NRF24_Radio *n,uint32_t now)
 {
-    HAL_GPIO_WritePin(NRF_CE_PORT, NRF_CE_PIN, GPIO_PIN_SET);
+    if(n->state==NRF24_CE_PULSE || n->state==NRF24_WAIT_ACK)
+        Complete(n,NRF24_TX_SPI_ERROR);
+    n->io.ce(n->io.context,0U);
+    n->io.csn(n->io.context,1U);
+    n->ready=n->detected=0U;
+    n->pending=0U; /* Caller rebuilds fresh telemetry after recovery. */
+    n->state=NRF24_RETRY;
+    n->since_ms=now;
+    n->stats.recoveries++;
 }
-
-void NRF24_CE_Disable(void)
+static uint8_t Configure(NRF24_Radio *n)
 {
-    HAL_GPIO_WritePin(NRF_CE_PORT, NRF_CE_PIN, GPIO_PIN_RESET);
+    uint8_t bytes[5];
+    /* Probe two values, so floating/stuck MISO cannot claim a detected chip. */
+    if(!WriteReg(n,5U,0x2AU) || !CheckReg(n,5U,0x2AU) ||
+       !WriteReg(n,5U,0x55U) || !CheckReg(n,5U,0x55U)) return 0U;
+    n->detected=1U;
+    const uint8_t regs[]={0U,1U,2U,3U,4U,5U,6U,0x11U,0x1CU,0x1DU};
+    const uint8_t values[]={0x0CU,1U,1U,3U,0x2FU,NRF24_CHANNEL,0x06U,32U,0U,0U};
+    for(uint8_t i=0;i<sizeof(regs);i++)
+        if(!WriteReg(n,regs[i],values[i]) || !CheckReg(n,regs[i],values[i])) return 0U;
+    if(!Exchange(n,0x2AU,address,0,5U) || !Exchange(n,0x30U,address,0,5U) ||
+       !Exchange(n,0x0AU,0,bytes,5U) || memcmp(bytes,address,5U) ||
+       !Exchange(n,0x10U,0,bytes,5U) || memcmp(bytes,address,5U)) return 0U;
+    if(!WriteReg(n,REG_STATUS,0x70U) || !Command(n,0xE1U) || !Command(n,0xE2U)) return 0U;
+    uint8_t config=n->role==NRF24_RECEIVER?0x0FU:0x0EU;
+    return WriteReg(n,REG_CONFIG,config) && CheckReg(n,REG_CONFIG,config);
 }
-
-/* One HAL call equals one uninterrupted SPI byte stream. CSN is managed
- * manually and stays low across all bytes belonging to a single command.
- */
-static uint8_t NRF_SPI_Transfer(uint8_t *tx,
-                                uint8_t *rx,
-                                uint16_t size,
-                                uint32_t timeout_ms)
+uint8_t NRF24_Init(NRF24_Radio *n,NRF24_Role role,const NRF24_IO *io)
 {
-    HAL_StatusTypeDef hal_status;
-
-    if ((tx == (uint8_t *)0) || (rx == (uint8_t *)0) || (size == 0U))
-    {
-        nrf_spi_last_transfer_ok = 0U;
-        return 0U;
-    }
-
-    hal_status = HAL_SPI_TransmitReceive(NRF_SPI, tx, rx, size, timeout_ms);
-
-    nrf_spi_transfer_count++;
-    nrf_spi_last_hal_status = (uint8_t)hal_status;
-    nrf_spi_last_hal_error = NRF_SPI->ErrorCode;
-
-    if (hal_status != HAL_OK)
-    {
-        nrf_spi_error_count++;
-        nrf_spi_consecutive_errors++;
-        nrf_spi_last_transfer_ok = 0U;
-        return 0U;
-    }
-
-    nrf_spi_consecutive_errors = 0U;
-    nrf_spi_last_transfer_ok = 1U;
+    if(!n || !io || !io->millis || !io->transfer || !io->ce || !io->csn ||
+       (role!=NRF24_RECEIVER && role!=NRF24_TRANSMITTER)) return 0U;
+    memset(n,0,sizeof(*n));
+    n->io=*io; n->role=role; n->state=NRF24_BOOT;
+    n->since_ms=io->millis(io->context);
+    io->ce(io->context,0U); io->csn(io->context,1U);
     return 1U;
 }
-
-static uint8_t NRF_ReadReg(uint8_t reg, uint8_t *value)
+uint8_t NRF24_Queue(NRF24_Radio *n,const uint8_t payload[32],uint32_t tag)
 {
-    uint8_t tx[2] = { (uint8_t)(NRF_CMD_R_REGISTER |
-                                (reg & NRF_CMD_REGISTER_MASK)), NRF_CMD_NOP };
-    uint8_t rx[2] = { 0U, 0U };
-    uint8_t ok;
-
-    if (value == (uint8_t *)0)
-    {
-        return 0U;
-    }
-
-    NRF_CS_Low();
-    ok = NRF_SPI_Transfer(tx, rx, 2U, NRF24_SPI_TIMEOUT_MS);
-    NRF_CS_High();
-
-    if (ok != 0U)
-    {
-        if (NRF_StatusValid(rx[0]) == 0U)
-        {
-            return 0U;
-        }
-        *value = rx[1];
-        nrf_last_status = rx[0];
-    }
-
-    return ok;
-}
-
-static uint8_t NRF_WriteReg(uint8_t reg, uint8_t value)
-{
-    uint8_t tx[2] = { (uint8_t)(NRF_CMD_W_REGISTER |
-                                (reg & NRF_CMD_REGISTER_MASK)), value };
-    uint8_t rx[2] = { 0U, 0U };
-    uint8_t ok;
-
-    NRF_CS_Low();
-    ok = NRF_SPI_Transfer(tx, rx, 2U, NRF24_SPI_TIMEOUT_MS);
-    NRF_CS_High();
-
-    if (ok != 0U)
-    {
-        if (NRF_StatusValid(rx[0]) == 0U)
-        {
-            return 0U;
-        }
-        nrf_last_status = rx[0];
-    }
-
-    return ok;
-}
-
-static uint8_t NRF_WriteMulti(uint8_t reg,
-                              const uint8_t *data,
-                              uint8_t size)
-{
-    uint8_t command;
-    uint8_t status_rx = 0U;
-    uint8_t rx[NRF24_ADDRESS_WIDTH] = { 0U, 0U, 0U, 0U, 0U };
-    uint8_t ok;
-
-    if ((data == (const uint8_t *)0) ||
-        (size == 0U) ||
-        (size > NRF24_ADDRESS_WIDTH))
-    {
-        return 0U;
-    }
-
-    command = (uint8_t)(NRF_CMD_W_REGISTER |
-                        (reg & NRF_CMD_REGISTER_MASK));
-
-    NRF_CS_Low();
-    ok = NRF_SPI_Transfer(&command, &status_rx, 1U, NRF24_SPI_TIMEOUT_MS);
-
-    if (ok != 0U)
-    {
-        if (NRF_StatusValid(status_rx) == 0U)
-        {
-            ok = 0U;
-        }
-        else
-        {
-            nrf_last_status = status_rx;
-        }
-    }
-
-    if (ok != 0U)
-    {
-        /* HAL_SPI_TransmitReceive needs a writable TX buffer. The address
-         * passed here is read-only, so copy it to a bounded local buffer.
-         */
-        {
-            uint8_t tx_copy[NRF24_ADDRESS_WIDTH];
-            uint8_t i;
-
-            for (i = 0U; i < size; i++)
-            {
-                tx_copy[i] = data[i];
-            }
-
-            ok = NRF_SPI_Transfer(tx_copy, rx, size, NRF24_SPI_TIMEOUT_MS);
-        }
-    }
-
-    NRF_CS_High();
-    return ok;
-}
-
-static uint8_t NRF_ReadMulti(uint8_t reg, uint8_t *data, uint8_t size)
-{
-    uint8_t command;
-    uint8_t status_rx = 0U;
-    uint8_t dummy[NRF24_ADDRESS_WIDTH] = { NRF_CMD_NOP, NRF_CMD_NOP,
-                                          NRF_CMD_NOP, NRF_CMD_NOP,
-                                          NRF_CMD_NOP };
-    uint8_t ok;
-
-    if ((data == (uint8_t *)0) ||
-        (size == 0U) ||
-        (size > NRF24_ADDRESS_WIDTH))
-    {
-        return 0U;
-    }
-
-    command = (uint8_t)(NRF_CMD_R_REGISTER |
-                        (reg & NRF_CMD_REGISTER_MASK));
-
-    NRF_CS_Low();
-    ok = NRF_SPI_Transfer(&command, &status_rx, 1U, NRF24_SPI_TIMEOUT_MS);
-
-    if (ok != 0U)
-    {
-        if (NRF_StatusValid(status_rx) == 0U)
-        {
-            ok = 0U;
-        }
-        else
-        {
-            nrf_last_status = status_rx;
-            ok = NRF_SPI_Transfer(dummy, data, size, NRF24_SPI_TIMEOUT_MS);
-        }
-    }
-
-    NRF_CS_High();
-    return ok;
-}
-
-static uint8_t NRF_Command(uint8_t command)
-{
-    uint8_t rx = 0U;
-    uint8_t ok;
-
-    NRF_CS_Low();
-    ok = NRF_SPI_Transfer(&command, &rx, 1U, NRF24_SPI_TIMEOUT_MS);
-    NRF_CS_High();
-
-    if (ok != 0U)
-    {
-        if (NRF_StatusValid(rx) == 0U)
-        {
-            return 0U;
-        }
-        nrf_last_status = rx;
-    }
-
-    return ok;
-}
-
-static uint8_t NRF_VerifyRegister(uint8_t reg, uint8_t expected)
-{
-    uint8_t actual = 0U;
-
-    if (NRF_ReadReg(reg, &actual) == 0U)
-    {
-        return 0U;
-    }
-
-    return (actual == expected) ? 1U : 0U;
-}
-
-uint8_t NRF24_ReadRegisterChecked(uint8_t reg, uint8_t *value)
-{
-    return NRF_ReadReg(reg, value);
-}
-
-uint8_t NRF24_ReadRegister(uint8_t reg)
-{
-    uint8_t value = 0xFFU;
-
-    if (NRF_ReadReg(reg, &value) == 0U)
-    {
-        return 0xFFU;
-    }
-
-    return value;
-}
-
-void NRF24_FlushTX(void)
-{
-    (void)NRF_Command(NRF_CMD_FLUSH_TX);
-}
-
-/* A writable register test is used because nRF24L01+ has no WHO_AM_I
- * register. RF_CH is tested with two different values and restored.
- */
-uint8_t NRF24_CheckConnection(void)
-{
-    uint8_t original = 0U;
-    uint8_t value_a = 0U;
-    uint8_t value_b = 0U;
-    uint8_t restore_ok;
-
-    if (NRF_ReadReg(NRF_REG_RF_CH, &original) == 0U)
-    {
-        return 0U;
-    }
-
-    if (NRF_WriteReg(NRF_REG_RF_CH, 0x2AU) == 0U)
-    {
-        goto restore;
-    }
-
-    if (NRF_ReadReg(NRF_REG_RF_CH, &value_a) == 0U)
-    {
-        goto restore;
-    }
-
-    if (NRF_WriteReg(NRF_REG_RF_CH, 0x55U) == 0U)
-    {
-        goto restore;
-    }
-
-    if (NRF_ReadReg(NRF_REG_RF_CH, &value_b) == 0U)
-    {
-        goto restore;
-    }
-
-    if ((value_a == 0x2AU) && (value_b == 0x55U))
-    {
-        restore_ok = NRF_WriteReg(NRF_REG_RF_CH,
-                                  (uint8_t)(original & 0x7FU));
-        return restore_ok;
-    }
-
-restore:
-    (void)NRF_WriteReg(NRF_REG_RF_CH, (uint8_t)(original & 0x7FU));
-    return 0U;
-}
-
-uint8_t NRF24_Init(void)
-{
-    nrf_detected = 0U;
-    nrf_config_ok = 0U;
-    nrf_init_error = NRF24_INIT_ERR_NONE;
-    nrf_last_tx_result = NRF24_TX_NONE;
-
-    NRF24_CE_Disable();
-    NRF_CS_High();
-    HAL_Delay(5U);
-
-    nrf_init_stage = NRF24_INIT_SPI_PROBE;
-
-    /* This confirms the HAL transaction completes. The RF_CH read/write
-     * test below is the actual chip + MISO/SCK/MOSI/CSN communication test.
-     */
-    if (NRF_Command(NRF_CMD_NOP) == 0U)
-    {
-        nrf_init_error = (nrf_spi_last_transfer_ok != 0U) ?
-                         NRF24_INIT_ERR_NO_DEVICE : NRF24_INIT_ERR_SPI;
-        nrf_init_stage = NRF24_INIT_ERROR;
-        return 0U;
-    }
-
-    nrf_init_stage = NRF24_INIT_CHIP_PROBE;
-
-    if (NRF24_CheckConnection() == 0U)
-    {
-        nrf_init_error = NRF24_INIT_ERR_NO_DEVICE;
-        nrf_init_stage = NRF24_INIT_ERROR;
-        return 0U;
-    }
-
-    nrf_detected = 1U;
-    nrf_init_stage = NRF24_INIT_REG_CONFIG;
-
-    if ((NRF_WriteReg(NRF_REG_CONFIG, NRF_CONFIG_POWERDOWN) == 0U) ||
-        (NRF_WriteReg(NRF_REG_EN_AA, NRF_EN_AA_PIPE0) == 0U) ||
-        (NRF_WriteReg(NRF_REG_EN_RXADDR, NRF_EN_RX_PIPE0) == 0U) ||
-        (NRF_WriteReg(NRF_REG_SETUP_AW, 0x03U) == 0U) ||
-        (NRF_WriteReg(NRF_REG_SETUP_RETR, NRF_SETUP_RETR_VALUE) == 0U) ||
-        (NRF_WriteReg(NRF_REG_RF_CH, NRF24_CHANNEL) == 0U) ||
-        (NRF_WriteReg(NRF_REG_RF_SETUP, NRF_RF_SETUP_1MBPS_0DBM) == 0U) ||
-        (NRF_WriteReg(NRF_REG_RX_PW_P0, NRF24_PAYLOAD_SIZE) == 0U) ||
-        (NRF_WriteReg(NRF_REG_DYNPD, 0x00U) == 0U) ||
-        (NRF_WriteReg(NRF_REG_FEATURE, 0x00U) == 0U) ||
-        (NRF_WriteReg(NRF_REG_STATUS, 0x70U) == 0U) ||
-        (NRF_Command(NRF_CMD_FLUSH_TX) == 0U) ||
-        (NRF_Command(NRF_CMD_FLUSH_RX) == 0U))
-    {
-        nrf_init_error = NRF24_INIT_ERR_REGISTER;
-        nrf_init_stage = NRF24_INIT_ERROR;
-        return 0U;
-    }
-
-    if ((NRF_VerifyRegister(NRF_REG_CONFIG, NRF_CONFIG_POWERDOWN) == 0U) ||
-        (NRF_VerifyRegister(NRF_REG_EN_AA, NRF_EN_AA_PIPE0) == 0U) ||
-        (NRF_VerifyRegister(NRF_REG_EN_RXADDR, NRF_EN_RX_PIPE0) == 0U) ||
-        (NRF_VerifyRegister(NRF_REG_SETUP_AW, 0x03U) == 0U) ||
-        (NRF_VerifyRegister(NRF_REG_SETUP_RETR, NRF_SETUP_RETR_VALUE) == 0U) ||
-        (NRF_VerifyRegister(NRF_REG_RF_CH, NRF24_CHANNEL) == 0U) ||
-        (NRF_VerifyRegister(NRF_REG_RF_SETUP, NRF_RF_SETUP_1MBPS_0DBM) == 0U) ||
-        (NRF_VerifyRegister(NRF_REG_RX_PW_P0, NRF24_PAYLOAD_SIZE) == 0U) ||
-        (NRF_VerifyRegister(NRF_REG_DYNPD, 0x00U) == 0U))
-    {
-        nrf_init_error = NRF24_INIT_ERR_REGISTER;
-        nrf_init_stage = NRF24_INIT_ERROR;
-        return 0U;
-    }
-
-    nrf_config_ok = 1U;
-    nrf_init_stage = NRF24_INIT_TX_CONFIG;
+    if(!n || n->role!=NRF24_TRANSMITTER || !payload) return 0U;
+    memcpy(n->pending_data,payload,32U);
+    n->pending_tag=tag; n->pending=1U;
     return 1U;
 }
-
-uint8_t NRF24_TxMode(const uint8_t address[NRF24_ADDRESS_WIDTH],
-                     uint8_t channel)
+uint8_t NRF24_Read(NRF24_Radio *n,uint8_t payload[32])
 {
-    uint8_t verify_address[NRF24_ADDRESS_WIDTH];
-    uint8_t verify_config = 0U;
-
-    if ((address == (const uint8_t *)0) || (channel > 125U))
-    {
-        nrf_init_error = NRF24_INIT_ERR_ADDRESS;
-        nrf_init_stage = NRF24_INIT_ERROR;
-        nrf_config_ok = 0U;
-        return 0U;
-    }
-
-    NRF24_CE_Disable();
-
-    if ((NRF_WriteReg(NRF_REG_RF_CH, channel) == 0U) ||
-        (NRF_WriteMulti(NRF_REG_TX_ADDR, address, NRF24_ADDRESS_WIDTH) == 0U) ||
-        (NRF_WriteMulti(NRF_REG_RX_ADDR_P0, address, NRF24_ADDRESS_WIDTH) == 0U))
-    {
-        nrf_init_error = NRF24_INIT_ERR_REGISTER;
-        nrf_init_stage = NRF24_INIT_ERROR;
-        nrf_config_ok = 0U;
-        return 0U;
-    }
-
-    if ((NRF_ReadMulti(NRF_REG_TX_ADDR, verify_address, NRF24_ADDRESS_WIDTH) == 0U) ||
-        (memcmp(verify_address, address, NRF24_ADDRESS_WIDTH) != 0))
-    {
-        nrf_init_error = NRF24_INIT_ERR_ADDRESS;
-        nrf_init_stage = NRF24_INIT_ERROR;
-        nrf_config_ok = 0U;
-        return 0U;
-    }
-
-    if ((NRF_ReadMulti(NRF_REG_RX_ADDR_P0, verify_address, NRF24_ADDRESS_WIDTH) == 0U) ||
-        (memcmp(verify_address, address, NRF24_ADDRESS_WIDTH) != 0))
-    {
-        nrf_init_error = NRF24_INIT_ERR_ADDRESS;
-        nrf_init_stage = NRF24_INIT_ERROR;
-        nrf_config_ok = 0U;
-        return 0U;
-    }
-
-    if ((NRF_WriteReg(NRF_REG_CONFIG, NRF_CONFIG_TX_READY) == 0U))
-    {
-        nrf_init_error = NRF24_INIT_ERR_POWER_UP;
-        nrf_init_stage = NRF24_INIT_ERROR;
-        nrf_config_ok = 0U;
-        return 0U;
-    }
-
-    /* nRF24L01+ requires up to 1.5 ms from PWR_UP=0 to standby.
-     * 2 ms gives margin before CE is pulsed.
-     */
-    HAL_Delay(2U);
-
-    if (NRF_ReadReg(NRF_REG_CONFIG, &verify_config) == 0U)
-    {
-        nrf_init_error = NRF24_INIT_ERR_SPI;
-        nrf_init_stage = NRF24_INIT_ERROR;
-        nrf_config_ok = 0U;
-        return 0U;
-    }
-
-    if (verify_config != NRF_CONFIG_TX_READY)
-    {
-        nrf_init_error = NRF24_INIT_ERR_POWER_UP;
-        nrf_init_stage = NRF24_INIT_ERROR;
-        nrf_config_ok = 0U;
-        return 0U;
-    }
-
-    if ((NRF_VerifyRegister(NRF_REG_RF_CH, channel) == 0U) ||
-        (NRF_VerifyRegister(NRF_REG_EN_AA, NRF_EN_AA_PIPE0) == 0U) ||
-        (NRF_VerifyRegister(NRF_REG_EN_RXADDR, NRF_EN_RX_PIPE0) == 0U) ||
-        (NRF_VerifyRegister(NRF_REG_SETUP_RETR, NRF_SETUP_RETR_VALUE) == 0U))
-    {
-        nrf_init_error = NRF24_INIT_ERR_REGISTER;
-        nrf_init_stage = NRF24_INIT_ERROR;
-        nrf_config_ok = 0U;
-        return 0U;
-    }
-
-    nrf_config_ok = 1U;
-    nrf_init_error = NRF24_INIT_ERR_NONE;
-    nrf_init_stage = NRF24_INIT_READY;
+    if(!n || !payload || !n->count) return 0U;
+    memcpy(payload,n->queue[n->head],32U);
+    n->head=(n->head+1U)%NRF24_RX_QUEUE; n->count--;
     return 1U;
 }
-
-uint8_t NRF24_Transmit(const uint8_t data[NRF24_PAYLOAD_SIZE])
+void NRF24_Process(NRF24_Radio *n)
 {
-    uint8_t command = NRF_CMD_W_TX_PAYLOAD;
-    uint8_t command_rx = 0U;
-    uint8_t tx_payload[NRF24_PAYLOAD_SIZE];
-    uint8_t payload_rx[NRF24_PAYLOAD_SIZE];
-    uint8_t reg_value = 0U;
-    uint8_t status = 0U;
-    uint8_t ok;
-    uint32_t start_tick;
-
-    if (data == (const uint8_t *)0)
-    {
-        nrf_last_tx_result = NRF24_TX_BAD_ARGUMENT;
-        return 0U;
+    if(!n || !n->io.millis) return;
+    uint32_t now=n->io.millis(n->io.context);
+    uint8_t value;
+    if(n->state==NRF24_RETRY) {
+        if((uint32_t)(now-n->since_ms)<NRF24_RETRY_MS) return;
+        n->state=NRF24_BOOT; n->since_ms=now;
     }
-
-    if ((nrf_detected == 0U) || (nrf_config_ok == 0U))
-    {
-        nrf_last_tx_result = NRF24_TX_NOT_READY;
-        return 0U;
+    if(n->state==NRF24_BOOT) {
+        if((uint32_t)(now-n->since_ms)<100U) return; /* Power-on reset margin. */
+        if(!Configure(n)) { n->stats.config_errors++; Recover(n,now); return; }
+        n->state=NRF24_POWER; n->since_ms=n->io.millis(n->io.context);
+        return;
     }
-
-    nrf_tx_attempt_count++;
-    nrf_last_tx_result = NRF24_TX_NONE;
-    NRF24_CE_Disable();
-
-    /* Clear old IRQ flags and any payload left after MAX_RT. */
-    if ((NRF_WriteReg(NRF_REG_STATUS, 0x70U) == 0U) ||
-        (NRF_Command(NRF_CMD_FLUSH_TX) == 0U))
-    {
-        nrf_last_tx_result = NRF24_TX_SPI_ERROR;
-        return 0U;
+    if(n->state==NRF24_POWER) {
+        if((uint32_t)(now-n->since_ms)<5U) return; /* PWR_UP -> standby. */
+        n->ready=1U; n->health_ms=now; n->poll_ms=now; n->since_ms=now;
+        n->state=n->role==NRF24_RECEIVER?NRF24_RX:NRF24_IDLE;
+        if(n->role==NRF24_RECEIVER) n->io.ce(n->io.context,1U);
+        return;
     }
-
-    memcpy(tx_payload, data, NRF24_PAYLOAD_SIZE);
-
-    NRF_CS_Low();
-    ok = NRF_SPI_Transfer(&command, &command_rx, 1U, NRF24_SPI_TIMEOUT_MS);
-
-    if (ok != 0U)
-    {
-        nrf_last_status = command_rx;
-        if (NRF_StatusValid(command_rx) == 0U)
-        {
-            ok = 0U;
+    if(n->state==NRF24_CE_PULSE) {
+        if((uint32_t)(now-n->since_ms)<2U) return; /* >= 1 ms actual CE pulse. */
+        n->io.ce(n->io.context,0U);
+        n->state=NRF24_WAIT_ACK;
+    }
+    if(n->state==NRF24_WAIT_ACK) {
+        if((uint32_t)(now-n->poll_ms)<1U) return;
+        n->poll_ms=now;
+        if(!Command(n,0xFFU)) { Recover(n,now); return; }
+        if((n->status&(TX_DS|MAX_RT))==(TX_DS|MAX_RT)) { Recover(n,now); return; }
+        if(n->status&TX_DS) {
+            if(!WriteReg(n,REG_STATUS,TX_DS)) { Recover(n,now); return; }
+            n->stats.tx_acks++; Complete(n,NRF24_TX_ACK); n->state=NRF24_IDLE;
+        } else if(n->status&MAX_RT) {
+            if(!WriteReg(n,REG_STATUS,MAX_RT) || !Command(n,0xE1U)) { Recover(n,now); return; }
+            n->stats.tx_max_rt++; Complete(n,NRF24_TX_MAX_RT); n->state=NRF24_IDLE;
+        } else if((uint32_t)(now-n->since_ms)>=NRF24_TX_TIMEOUT_MS) {
+            n->stats.tx_timeouts++; Complete(n,NRF24_TX_TIMEOUT);
+            /* Recover must not emit another completion for this same attempt. */
+            n->state=NRF24_IDLE; Recover(n,now);
         }
-        else
-        {
-            ok = NRF_SPI_Transfer(tx_payload,
-                                  payload_rx,
-                                  NRF24_PAYLOAD_SIZE,
-                                  NRF24_SPI_TIMEOUT_MS);
+        return;
+    }
+    if(!n->ready) return;
+    if((uint32_t)(now-n->health_ms)>=1000U) {
+        n->health_ms=now;
+        if(!CheckReg(n,REG_CONFIG,n->role==NRF24_RECEIVER?0x0FU:0x0EU) ||
+           !CheckReg(n,5U,NRF24_CHANNEL) || !CheckReg(n,6U,0x06U)) {
+            Recover(n,now); return;
         }
     }
-
-    NRF_CS_High();
-
-    if (ok == 0U)
-    {
-        nrf_last_tx_result = NRF24_TX_SPI_ERROR;
-        return 0U;
+    if(n->state==NRF24_IDLE && n->pending) {
+        if(!WriteReg(n,REG_STATUS,TX_DS|MAX_RT) || !Command(n,0xE1U) ||
+           !Exchange(n,0xA0U,n->pending_data,0,32U)) { Recover(n,now); return; }
+        n->active_tag=n->pending_tag; n->pending=0U;
+        n->stats.tx_attempts++; n->last_tx_result=NRF24_TX_NONE;
+        n->io.ce(n->io.context,1U);
+        n->since_ms=n->io.millis(n->io.context); n->state=NRF24_CE_PULSE;
+        return;
     }
-
-    /* CE pulse > 10 us. 1 ms is deliberately used instead of a compiler-
-     * dependent software loop, and transmits exactly one FIFO payload.
-     */
-    NRF24_CE_Enable();
-    HAL_Delay(1U);
-    NRF24_CE_Disable();
-
-    start_tick = HAL_GetTick();
-
-    while ((uint32_t)(HAL_GetTick() - start_tick) < NRF24_TX_TIMEOUT_MS)
-    {
-        if (NRF_ReadReg(NRF_REG_STATUS, &status) == 0U)
-        {
-            (void)NRF_Command(NRF_CMD_FLUSH_TX);
-            nrf_last_tx_result = NRF24_TX_SPI_ERROR;
-            return 0U;
+    if(n->state!=NRF24_RX || (uint32_t)(now-n->poll_ms)<1U) return;
+    n->poll_ms=now;
+    for(uint8_t budget=0;budget<3U;budget++) {
+        if(!ReadReg(n,REG_FIFO,&value)) { Recover(n,now); return; }
+        if(value&1U) break;
+        if(((n->status>>1U)&7U)!=0U) { Recover(n,now); return; }
+        uint8_t payload[32];
+        if(!Exchange(n,0x61U,0,payload,32U)) { Recover(n,now); return; }
+        if(n->count==NRF24_RX_QUEUE) {
+            n->head=(n->head+1U)%NRF24_RX_QUEUE; n->count--; n->stats.rx_dropped++;
         }
-
-        nrf_last_status = status;
-
-        if ((status & NRF_STATUS_TX_DS) != 0U)
-        {
-            (void)NRF_WriteReg(NRF_REG_STATUS, NRF_STATUS_TX_DS);
-            if (NRF_ReadReg(NRF_REG_OBSERVE_TX, &reg_value) != 0U)
-            {
-                nrf_last_observe_tx = reg_value;
-            }
-            if (NRF_ReadReg(NRF_REG_FIFO_STATUS, &reg_value) != 0U)
-            {
-                nrf_last_fifo = reg_value;
-            }
-
-            nrf_tx_ack_count++;
-            nrf_last_tx_result = NRF24_TX_ACK;
-            return 1U;
-        }
-
-        if ((status & NRF_STATUS_MAX_RT) != 0U)
-        {
-            (void)NRF_WriteReg(NRF_REG_STATUS, NRF_STATUS_MAX_RT);
-            (void)NRF_Command(NRF_CMD_FLUSH_TX);
-            if (NRF_ReadReg(NRF_REG_OBSERVE_TX, &reg_value) != 0U)
-            {
-                nrf_last_observe_tx = reg_value;
-            }
-            if (NRF_ReadReg(NRF_REG_FIFO_STATUS, &reg_value) != 0U)
-            {
-                nrf_last_fifo = reg_value;
-            }
-
-            nrf_tx_max_rt_count++;
-            nrf_last_tx_result = NRF24_TX_MAX_RT;
-            return 0U;
-        }
-
-        HAL_Delay(1U);
+        memcpy(n->queue[(n->head+n->count)%NRF24_RX_QUEUE],payload,32U);
+        n->count++; n->stats.rx_packets++;
     }
-
-    (void)NRF_Command(NRF_CMD_FLUSH_TX);
-    if (NRF_ReadReg(NRF_REG_OBSERVE_TX, &reg_value) != 0U)
-    {
-        nrf_last_observe_tx = reg_value;
-    }
-    if (NRF_ReadReg(NRF_REG_FIFO_STATUS, &reg_value) != 0U)
-    {
-        nrf_last_fifo = reg_value;
-    }
-
-    nrf_tx_timeout_count++;
-    nrf_last_tx_result = NRF24_TX_TIMEOUT;
-    return 0U;
+    /* Poll FIFO next time too: an arrival racing RX_DR clear cannot be lost. */
+    if(!WriteReg(n,REG_STATUS,RX_DR)) Recover(n,now);
 }
+#ifndef NRF24_HOST_TEST
+static uint32_t BoardMillis(void *unused) { (void)unused; return HAL_GetTick(); }
+static void BoardCE(void *unused,uint8_t on) { (void)unused; HAL_GPIO_WritePin(CE_GPIO_Port,CE_Pin,on?GPIO_PIN_SET:GPIO_PIN_RESET); }
+static void BoardCSN(void *unused,uint8_t on) { (void)unused; HAL_GPIO_WritePin(CSN_GPIO_Port,CSN_Pin,on?GPIO_PIN_SET:GPIO_PIN_RESET); }
+static uint8_t BoardTransfer(void *unused,const uint8_t *tx,uint8_t *rx,uint8_t size)
+{
+    (void)unused;
+    SPI_HandleTypeDef *spi=&NRF24_BOARD_SPI;
+    uint32_t start=HAL_GetTick();
+    /* Only one byte can be outstanding: avoids RX overrun under XIP/IRQ latency.
+     * CSN remains asserted across the entire command, including byte gaps. */
+    for(uint8_t i=0;i<size;i++) {
+        uint8_t byte=tx[i]; /* Older STM32F0 HAL lacks const on its TX pointer. */
+        if((uint32_t)(HAL_GetTick()-start)>5U ||
+           HAL_SPI_TransmitReceive(spi,&byte,rx+i,1U,2U)!=HAL_OK) {
+            __HAL_SPI_DISABLE(spi); __HAL_SPI_CLEAR_OVRFLAG(spi);
+            spi->State=HAL_SPI_STATE_READY; spi->Lock=HAL_UNLOCKED;
+            return 0U;
+        }
+    }
+    return 1U;
+}
+uint8_t NRF24_BoardInit(NRF24_Radio *n,NRF24_Role role)
+{
+    SPI_HandleTypeDef *spi=&NRF24_BOARD_SPI;
+    uint32_t br=spi->Init.BaudRatePrescaler;
+    if((br&~SPI_CR1_BR) || NRF24_BOARD_PCLK_HZ/(2U<<(br>>3U))>1000000U) return 0U;
+    if(spi->Init.Mode!=SPI_MODE_MASTER || spi->Init.Direction!=SPI_DIRECTION_2LINES ||
+       spi->Init.DataSize!=SPI_DATASIZE_8BIT || spi->Init.CLKPolarity!=SPI_POLARITY_LOW ||
+       spi->Init.CLKPhase!=SPI_PHASE_1EDGE || spi->Init.NSS!=SPI_NSS_SOFT ||
+       spi->Init.FirstBit!=SPI_FIRSTBIT_MSB || spi->Init.TIMode!=SPI_TIMODE_DISABLE ||
+       spi->Init.CRCCalculation!=SPI_CRCCALCULATION_DISABLE) return 0U;
+    NRF24_IO io={0,BoardMillis,BoardTransfer,BoardCE,BoardCSN};
+    return NRF24_Init(n,role,&io);
+}
+#endif

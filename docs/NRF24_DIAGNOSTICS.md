@@ -1,124 +1,129 @@
-# nRF24L01+ bring-up and diagnostics (STM32F030F4P6)
+# CO2 radio link, protocol v1
 
-This project uses the nRF24L01+ over SPI1. The driver is configured for a fixed
-32-byte payload, 5-byte address, channel 10, 1 Mbps, 0 dBm, 2-byte CRC and
-Enhanced ShockBurst Auto-ACK on pipe 0.
+Both peers must be upgraded together. Legacy `CO2=...` text packets are rejected;
+they must not become unvalidated numeric data. The receiver retains the latest
+valid ppm on a sensor error but exposes the current error/freshness separately.
 
-## Wiring used by this project
+## Shared radio profile
 
-| nRF24L01+ | STM32F030F4P6 | Function |
-|---|---|---|
-| VCC | regulated 3.3 V | Power |
-| GND | GND | Common ground |
-| CE | PA3 | Radio TX/RX control |
-| CSN | PA4 | SPI chip select (active low) |
-| SCK | PA5 | SPI1 clock |
-| MISO | PA6 | SPI1 input |
-| MOSI | PA7 | SPI1 output |
-| IRQ | not connected | Optional; polling is used |
+- Address bytes in register/SPI order: `EE DD CC BB AA`.
+- Channel 10 (2410 MHz), 1 Mbps, 0 dBm; 5-byte address.
+- Fixed 32-byte payload, 2-byte radio CRC, Auto-ACK enabled on pipe 0.
+- 750 us delay and 15 hardware retries (`SETUP_RETR=0x2F`).
+- Dynamic payload and ACK payload disabled.
+- Sender config `0x0E`; receiver config `0x0F`; RF_SETUP `0x06`.
+- SPI Mode 0, 8-bit, MSB first, software CSN, 1 MHz.
+- F030 sender: SPI1 PA5/PA6/PA7, CE PA3, CSN PA4.
+- F412 receiver: SPI5 PB0/PA12/PA10, CE PA11, CSN PA15.
 
-Do not power the radio from 5 V. Place a 100 nF ceramic capacitor and a
-low-ESR 10 uF capacitor close to the radio module's VCC/GND pins. The supply
-must remain stable during RF transmit bursts. PA/LNA variants may need a
-separate supply with substantially more peak-current margin.
+`NRF24L01.c`, `NRF24L01.h`, and `co2_link.h` are identical on both boards.
+Only `nrf24_board.h` selects the SPI handle and bus clock. Copy changes to these
+shared files together; host tests exercise both virtual peers using this code.
 
-## Fast debugger test
+## Execution and failure handling
 
-1. Build and flash the project, then start a debug session.
-2. Add these symbols to the Watch window:
-   - `watch_spi_config_ok`
-   - `watch_spi_hal_ready`
-   - `watch_spi_last_transfer_ok`
-   - `watch_nrf_detected`
-   - `watch_nrf_config_ok`
-   - `watch_nrf_initialized`
-   - `watch_nrf_link_ack`
-   - `watch_nrf_tx_result`
-   - `watch_nrf_init_stage`, `watch_nrf_init_error`
-   - `watch_nrf_reg_status`, `watch_nrf_reg_rf_ch`
-   - `watch_nrf_reg_config`, `watch_nrf_reg_en_aa`
-   - `watch_nrf_reg_fifo_status`, `watch_nrf_reg_setup_retr`
-   - `watch_nrf_tx_attempts`, `watch_nrf_tx_acks`
-   - `watch_nrf_tx_max_rt`, `watch_nrf_tx_timeouts`
-   - `watch_spi_transfers`, `watch_spi_errors`
-   - `watch_nrf_status_errors`, `watch_nrf_status_error_streak`
-3. Wait for `watch_nrf_detected == 1` and `watch_nrf_config_ok == 1`.
-4. Set `watch_nrf_test_request = 1`. The firmware sends one packet whose
-   first bytes are ASCII `NRF24_LINK_TEST`.
-5. When `watch_nrf_test_done == 1`:
-   - `watch_nrf_test_result == 1`: a valid RF ACK was received.
-   - `watch_nrf_tx_result == 2`: MAX_RT; no ACK was received after retries.
-   - `watch_nrf_tx_result == 3`: SPI/HAL transfer error.
-   - `watch_nrf_tx_result == 4`: TX status did not arrive before timeout.
+`NRF24_BoardInit` validates local SPI configuration and schedules radio startup.
+Call `NRF24_Process` from one main/task owner. No other task or IRQ accesses this
+radio or its SPI peripheral. The main loop owns the radio statistics and receive
+cache; they are not concurrently updated from IRQ callbacks. A future RTOS
+consumer must synchronize copies or consume snapshots in that owner task.
 
-## How to interpret the checks
+Power-on margin is 100 ms, power-up margin 5 ms. CE pulses use a cooperative
+state (>=1 ms actual). No HAL_Delay or RF status busy loop exists in the driver.
+TX polls at most once/ms and times out after 100 ms. RX drains at most 3 frames
+per Process; the 3-frame application ring drops oldest on overflow, preserving
+new telemetry and counting the loss. Polling FIFO rather than depending solely
+on RX_DR handles arrivals racing flag clears. Normal reception never FLUSH_RXs
+unread frames. Init/recovery deliberately flushes old radio FIFO contents.
 
-- `watch_spi_config_ok = 1`: SPI1 matches all driver requirements (master,
-  2-line full duplex, 8-bit, mode 0, software NSS, /8 prescaler, MSB first,
-  hardware TI mode and CRC disabled).
-- `watch_spi_last_transfer_ok = 1`: the last HAL SPI transfer completed.
-  This alone does not prove that the external wires are correct.
-- The driver rejects a STATUS byte whose reserved bit 7 is high. A floating MISO
-  line often returns 0xFF; it is not allowed to masquerade as TX success.
-- `watch_nrf_detected = 1`: the radio responded to SPI and passed two
-  RF_CH write/read-back tests (0x2A and 0x55). This verifies the MCU SPI
-  peripheral plus the connected radio's SPI register path.
-- `watch_nrf_config_ok = 1`: configuration registers passed read-back checks.
-- `watch_nrf_link_ack = 1`: the peer radio returned an Enhanced ShockBurst ACK.
-  It does not prove that the receiver's application has consumed the payload.
-- `watch_nrf_tx_result = 2` / MAX_RT usually means no compatible receiver is
-  listening, or receiver channel/address/data rate/CRC/pipe/Auto-ACK does not
-  match, or RF power/supply/antenna conditions are inadequate.
+SPI transactions remain synchronous and bounded, with one byte outstanding at
+a time and CSN held low over the entire command. This avoids the per-byte IRQ
+latency/overrun problem of external-flash execution. Each byte has a 2 ms HAL
+timeout and each command a 5 ms elapsed-time budget checked between bytes.
+Healthy frames take wire time plus software overhead; this is not fully DMA /
+IRQ-asynchronous SPI. A stalled byte can exceed the command budget by its one
+remaining 2 ms timeout. No sensor-conversion or ACK wait blocks the main loop.
 
-## Receiver must match
+Startup probes RF_CH with two patterns, verifies profile/address readbacks,
+and rejects impossible STATUS bit 7 (including floating 0xFF MISO). Idle/RX
+health checks verify CONFIG/channel/rate once/sec. Communication/configuration
+faults deassert CE, reset SPI state on transport failure, and schedule retry
+once/sec. Fault recovery discards queued telemetry; the app rebuilds a fresh
+report. Queue is a latest-unsent slot, not guaranteed delivery storage.
 
-The other radio must be configured as a receiver with all of these matching
-settings:
+Success requires TX_DS with Auto-ACK enabled. MAX_RT, timeout and SPI errors
+are distinct; FIFO empty alone never indicates delivery. Radio ACK proves
+peer radio reception, not application acceptance or LCD rendering.
 
-- RF channel: 10
-- Data rate: 1 Mbps
-- Address width: 5 bytes
-- Address on RX pipe 0: `EE DD CC BB AA` (same byte order)
-- 2-byte CRC enabled
-- Auto-ACK enabled on pipe 0
-- Fixed payload width: 32 bytes
-- RX mode selected and CE held high
+## 32-byte application packet
 
-The transmitter sets both `TX_ADDR` and `RX_ADDR_P0` to the same five-byte
-address so it can receive the ACK on pipe 0.
+All multi-byte integers are explicitly little endian; no packed C structure is
+sent over the air. Offsets:
 
-## Initialization stage / error codes
+| Offset | Meaning |
+|---|---|
+| 0..1 | ASCII `NR` magic |
+| 2 | Version, 1 |
+| 3 | Type: 1 telemetry, 2 link test |
+| 4 | Bit 0: has a valid measurement in history; other bits zero |
+| 5 | Sensor status: 0 good, 1 warm-up, 2 timeout, 3 UART error, 4 bad header, 5 bad checksum, 6 not ready |
+| 6..7 | Node ID, 1 |
+| 8..11 | Packet sequence |
+| 12..15 | Sender uptime in ms |
+| 16..19 | Measurement age at report creation; UINT32_MAX before first good sample |
+| 20..21 | Last valid CO2 ppm |
+| 22..23 | Reserved, zero |
+| 24..27 | Count of good sensor measurements |
+| 28..29 | Reserved, zero |
+| 30..31 | CRC16-CCITT-FALSE over bytes 0..29 (poly 0x1021, init 0xFFFF) |
 
-`watch_nrf_init_stage`:
-- 0: idle; 1: SPI probe; 2: chip/register-path probe
-- 3: register configuration; 4: TX mode/address setup; 5: ready
-- 255: initialization error
+Decoder checks magic/version/type, reserved fields, node and application CRC.
+The application CRC is separate from the radio CRC; neither authenticates or
+encrypts the link. This is a single trusted sender/node protocol, not an
+anti-replay or adversarial radio security scheme.
 
-`watch_nrf_init_error`:
-- 0: no error; 1: HAL/SPI transfer error; 2: no responding nRF device
-- 3: register configuration/read-back failure; 4: address read-back failure
-- 5: power-up/configuration failure
+Receiver deduplicates sequence+uptime without refreshing an old measurement's
+sample timestamp. Sequence reset after a sender reboot and 32-bit tick wraps
+are tolerated. Error reports preserve last good ppm and sample time. Data is
+usable only when the latest accepted report has a good, present, <=6 s old
+measurement and both local sample/link ages are <=6 s. Packet-carried sample
+age prevents a fresh arrival from making an explicitly old sample fresh.
+Timing is approximate: age is measured at report creation, not synchronized
+one-way RF time, and the cooperative caller must service Process regularly.
 
-## Result codes
+## Application and diagnostics
 
-| `watch_nrf_tx_result` | Meaning |
-|---:|---|
-| 0 | No transmission result yet |
-| 1 | TX_DS: remote radio ACK received |
-| 2 | MAX_RT: retry limit reached without ACK |
-| 3 | SPI transfer failed |
-| 4 | TX completion timeout |
-| 5 | Driver not initialized |
-| 6 | Invalid argument |
+The MH-Z19 UART DMA state machine remains intact. Warm-up is 180 s; measurement
+and report periods are 2 s. Warm-up/error frames are transmitted too; no fake
+zero ppm is presented as a valid sample. Sender uses WFI between SysTick/UART
+interrupts. Debug `radio` exposes state, ready/detected, last result and stats:
+SPI/config failures, recoveries, ACKs, MAX_RT, timeouts, completions and RX drops.
+`watch_nrf_link_ack` is true only for actual ACK success.
 
-## Engineering notes
+Set `watch_nrf_test_request=1` to enqueue one protocol test frame. Observe
+`watch_nrf_test_done` and `watch_nrf_test_result` (1 ACK, 2 MAX_RT, 3 SPI error,
+4 timeout); a matching receiver counts it without replacing the cached CO2.
+On the receiver, `co2_cache` / `CO2_GetSnapshot` provide ppm, status, sample/link
+ages, validity and rejection/duplicate counters without doing SPI. The LCD
+shows ppm, NRF OFF, NO LINK, WARMUP, CO2 ERR or OLD, never arbitrary radio text.
 
-- The nRF24L01+ uses one-byte SPI commands and an 8-bit SPI command set.
-  SPI1 is therefore configured for 8-bit frames, mode 0, MSB first and
-  4 MHz (32 MHz / prescaler 8).
-- CE is held high for 1 ms for a deterministic pulse greater than the
-  10 us minimum; the driver then polls STATUS with a finite timeout.
-- Automatic retransmission is set to 15 retries with a 750 us delay.
-- The driver retries initialization once per second while no radio is detected.
-- No firmware can guarantee RF reception without a powered, correctly
-  configured receiver and a suitable power supply, antenna and wiring.
+## Build and test
+
+- Keil project remains supported with its original Cortex-M0 device/settings;
+  install `Keil::STM32F0xx_DFP` and `ARM::CMSIS` packs first.
+- Portable GNU build: `./tools/build.ps1 -ToolchainBin <GNU Arm bin directory>`.
+  Linker limits are explicitly 16 KB Flash / 4 KB RAM, with 512 bytes reserved
+  for stack. Outputs: `build/CO2_Node.elf`, `.hex`, `.bin`.
+- Host tests: `./tools/test.ps1 -Compiler gcc`, or run the workflow's gcc command.
+  They compile the real shared driver/protocol against a fake radio transport.
+
+Tests cover profile matching, ACK/MAX_RT/timeout classification, missing chip /
+SPI fault recovery, bounded RX draining, ring overflow, preserving FIFO packets,
+all 256 single-bit corruptions of a packet, measurement age, error preservation,
+duplicates, sender reboot and tick rollover. ARM builds test family/HAL portability
+and memory budgets. CI runs the host tests under AddressSanitizer and UBSan.
+
+No physical two-board RF test has been performed for this change. After
+programming both peers, test a known CO2 report, warm-up/error displays, a link
+test ACK, receiver off/MAX_RT, sender restart, lost sensor and >6 s stale state.
+Check real CSN/CE/SCK timing, power integrity and radio range separately.
