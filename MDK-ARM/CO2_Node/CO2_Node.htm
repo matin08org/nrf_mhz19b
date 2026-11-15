@@ -3,11 +3,11 @@
 <title>Static Call Graph - [CO2_Node\CO2_Node.axf]</title></head>
 <body><HR>
 <H1>Static Call Graph for image CO2_Node\CO2_Node.axf</H1><HR>
-<BR><P>#&#060CALLGRAPH&#062# ARM Linker, 6240002: Last Updated: Thu Nov 12 11:30:04 2026
+<BR><P>#&#060CALLGRAPH&#062# ARM Linker, 6240002: Last Updated: Thu Nov 12 13:40:31 2026
 <BR><P>
-<H3>Maximum Stack Usage =        328 bytes + Unknown(Functions without stacksize, Cycles, Untraceable Function Pointers)</H3><H3>
+<H3>Maximum Stack Usage =        360 bytes + Unknown(Functions without stacksize, Cycles, Untraceable Function Pointers)</H3><H3>
 Call chain for Maximum Stack Depth:</H3>
-__rt_entry_main &rArr; main &rArr; NRF24_Transmit &rArr; HAL_SPI_TransmitReceive &rArr; SPI_WaitFifoStateUntilTimeout
+__rt_entry_main &rArr; main &rArr; NRF24_Transmit &rArr; NRF_WriteReg &rArr; HAL_SPI_TransmitReceive &rArr; SPI_WaitFifoStateUntilTimeout
 <P>
 <H3>
 Functions with no stack information
@@ -209,8 +209,8 @@ Global Symbols
 <P><STRONG><a name="[ba]"></a>__rt_entry_postsh_1</STRONG> (Thumb, 0 bytes, Stack size unknown bytes, __rtentry2.o(.ARM.Collect$$rtentry$$00000009))
 
 <P><STRONG><a name="[31]"></a>__rt_entry_main</STRONG> (Thumb, 0 bytes, Stack size unknown bytes, __rtentry2.o(.ARM.Collect$$rtentry$$0000000D))
-<BR><BR>[Stack]<UL><LI>Max Depth = 328 + Unknown Stack Size
-<LI>Call Chain = __rt_entry_main &rArr; main &rArr; NRF24_Transmit &rArr; HAL_SPI_TransmitReceive &rArr; SPI_WaitFifoStateUntilTimeout
+<BR><BR>[Stack]<UL><LI>Max Depth = 360 + Unknown Stack Size
+<LI>Call Chain = __rt_entry_main &rArr; main &rArr; NRF24_Transmit &rArr; NRF_WriteReg &rArr; HAL_SPI_TransmitReceive &rArr; SPI_WaitFifoStateUntilTimeout
 </UL>
 <BR>[Calls]<UL><LI><a href="#[32]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;main
 <LI><a href="#[33]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;exit
@@ -341,29 +341,37 @@ Global Symbols
 <BR>[Called By]<UL><LI><a href="#[28]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;_printf_u
 </UL>
 
+<P><STRONG><a name="[8f]"></a>memcmp</STRONG> (Thumb, 90 bytes, Stack size 8 bytes, memcmp.o(.text))
+<BR><BR>[Stack]<UL><LI>Max Depth = 8<LI>Call Chain = memcmp
+</UL>
+<BR>[Called By]<UL><LI><a href="#[8c]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_TxMode
+</UL>
+
 <P><STRONG><a name="[43]"></a>__aeabi_memcpy</STRONG> (Thumb, 130 bytes, Stack size 24 bytes, rt_memcpy.o(.text))
 <BR><BR>[Stack]<UL><LI>Max Depth = 24<LI>Call Chain = __aeabi_memcpy
 </UL>
 <BR>[Calls]<UL><LI><a href="#[44]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;__aeabi_memcpy4
 </UL>
-<BR>[Called By]<UL><LI><a href="#[89]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_Transmit
+<BR>[Called By]<UL><LI><a href="#[8b]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_Transmit
 </UL>
 
 <P><STRONG><a name="[be]"></a>__rt_memcpy</STRONG> (Thumb, 0 bytes, Stack size 24 bytes, rt_memcpy.o(.text), UNUSED)
 
-<P><STRONG><a name="[46]"></a>_memset_w</STRONG> (Thumb, 26 bytes, Stack size 0 bytes, rt_memclr.o(.text), UNUSED)
+<P><STRONG><a name="[46]"></a>_memset_w</STRONG> (Thumb, 26 bytes, Stack size 0 bytes, rt_memclr.o(.text))
 <BR><BR>[Called By]<UL><LI><a href="#[48]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;__rt_memclr_w
 <LI><a href="#[45]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;_memset
 </UL>
 
-<P><STRONG><a name="[45]"></a>_memset</STRONG> (Thumb, 30 bytes, Stack size 0 bytes, rt_memclr.o(.text), UNUSED)
+<P><STRONG><a name="[45]"></a>_memset</STRONG> (Thumb, 30 bytes, Stack size 0 bytes, rt_memclr.o(.text))
 <BR><BR>[Calls]<UL><LI><a href="#[46]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;_memset_w
 </UL>
 <BR>[Called By]<UL><LI><a href="#[47]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;__aeabi_memclr
 </UL>
 
-<P><STRONG><a name="[47]"></a>__aeabi_memclr</STRONG> (Thumb, 4 bytes, Stack size 0 bytes, rt_memclr.o(.text), UNUSED)
+<P><STRONG><a name="[47]"></a>__aeabi_memclr</STRONG> (Thumb, 4 bytes, Stack size 0 bytes, rt_memclr.o(.text))
 <BR><BR>[Calls]<UL><LI><a href="#[45]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;_memset
+</UL>
+<BR>[Called By]<UL><LI><a href="#[32]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;main
 </UL>
 
 <P><STRONG><a name="[bf]"></a>__rt_memclr</STRONG> (Thumb, 0 bytes, Stack size 0 bytes, rt_memclr.o(.text), UNUSED)
@@ -529,8 +537,9 @@ Global Symbols
 <BR>[Calls]<UL><LI><a href="#[54]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_GetTick
 </UL>
 <BR>[Called By]<UL><LI><a href="#[32]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;main
-<LI><a href="#[8a]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_TxMode
-<LI><a href="#[86]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_Init
+<LI><a href="#[8b]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_Transmit
+<LI><a href="#[8c]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_TxMode
+<LI><a href="#[88]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_Init
 </UL>
 
 <P><STRONG><a name="[60]"></a>HAL_GPIO_Init</STRONG> (Thumb, 396 bytes, Stack size 60 bytes, stm32f0xx_hal_gpio.o(.text.HAL_GPIO_Init))
@@ -543,12 +552,14 @@ Global Symbols
 
 <P><STRONG><a name="[82]"></a>HAL_GPIO_WritePin</STRONG> (Thumb, 16 bytes, Stack size 0 bytes, stm32f0xx_hal_gpio.o(.text.HAL_GPIO_WritePin))
 <BR><BR>[Called By]<UL><LI><a href="#[81]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;MX_GPIO_Init
-<LI><a href="#[89]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_Transmit
-<LI><a href="#[8a]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_TxMode
-<LI><a href="#[86]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_Init
-<LI><a href="#[85]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_CheckConnection
+<LI><a href="#[8b]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_Transmit
+<LI><a href="#[8c]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_TxMode
+<LI><a href="#[88]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_Init
+<LI><a href="#[8e]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF_ReadMulti
+<LI><a href="#[8d]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF_WriteMulti
 <LI><a href="#[87]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF_WriteReg
-<LI><a href="#[88]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF_Command
+<LI><a href="#[89]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF_Command
+<LI><a href="#[86]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF_ReadReg
 </UL>
 
 <P><STRONG><a name="[54]"></a>HAL_GetTick</STRONG> (Thumb, 8 bytes, Stack size 0 bytes, stm32f0xx_hal.o(.text.HAL_GetTick))
@@ -562,14 +573,14 @@ Global Symbols
 <LI><a href="#[7f]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;MHZ19_Request
 <LI><a href="#[7d]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;MHZ19_IsReady
 <LI><a href="#[7b]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;MHZ19_Init
-<LI><a href="#[89]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_Transmit
+<LI><a href="#[8b]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_Transmit
 <LI><a href="#[53]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_Delay
 <LI><a href="#[61]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_SPI_TransmitReceive
-<LI><a href="#[8c]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;UART_WaitOnFlagUntilTimeout
+<LI><a href="#[91]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;UART_WaitOnFlagUntilTimeout
 <LI><a href="#[72]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;UART_CheckIdleState
 </UL>
 
-<P><STRONG><a name="[8b]"></a>HAL_IncTick</STRONG> (Thumb, 16 bytes, Stack size 0 bytes, stm32f0xx_hal.o(.text.HAL_IncTick))
+<P><STRONG><a name="[90]"></a>HAL_IncTick</STRONG> (Thumb, 16 bytes, Stack size 0 bytes, stm32f0xx_hal.o(.text.HAL_IncTick))
 <BR><BR>[Called By]<UL><LI><a href="#[5]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;SysTick_Handler
 </UL>
 
@@ -628,7 +639,7 @@ Global Symbols
 <BR>[Called By]<UL><LI><a href="#[32]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;main
 </UL>
 
-<P><STRONG><a name="[8f]"></a>HAL_RCC_GetPCLK1Freq</STRONG> (Thumb, 20 bytes, Stack size 0 bytes, stm32f0xx_hal_rcc.o(.text.HAL_RCC_GetPCLK1Freq))
+<P><STRONG><a name="[94]"></a>HAL_RCC_GetPCLK1Freq</STRONG> (Thumb, 20 bytes, Stack size 0 bytes, stm32f0xx_hal_rcc.o(.text.HAL_RCC_GetPCLK1Freq))
 <BR><BR>[Called By]<UL><LI><a href="#[71]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;UART_SetConfig
 </UL>
 
@@ -671,12 +682,12 @@ Global Symbols
 <LI><a href="#[62]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;SPI_WaitFifoStateUntilTimeout
 <LI><a href="#[54]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_GetTick
 </UL>
-<BR>[Called By]<UL><LI><a href="#[89]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_Transmit
-<LI><a href="#[8a]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_TxMode
-<LI><a href="#[86]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_Init
-<LI><a href="#[85]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_CheckConnection
+<BR>[Called By]<UL><LI><a href="#[8b]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_Transmit
+<LI><a href="#[8e]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF_ReadMulti
+<LI><a href="#[8d]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF_WriteMulti
 <LI><a href="#[87]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF_WriteReg
-<LI><a href="#[88]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF_Command
+<LI><a href="#[89]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF_Command
+<LI><a href="#[86]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF_ReadReg
 </UL>
 
 <P><STRONG><a name="[58]"></a>HAL_SYSTICK_Config</STRONG> (Thumb, 40 bytes, Stack size 0 bytes, stm32f0xx_hal_cortex.o(.text.HAL_SYSTICK_Config))
@@ -770,7 +781,7 @@ Global Symbols
 <BR>[Called By]<UL><LI><a href="#[23]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;UART_DMAReceiveCplt
 </UL>
 
-<P><STRONG><a name="[8d]"></a>HAL_UART_RxHalfCpltCallback</STRONG> (Thumb, 2 bytes, Stack size 0 bytes, stm32f0xx_hal_uart.o(.text.HAL_UART_RxHalfCpltCallback))
+<P><STRONG><a name="[92]"></a>HAL_UART_RxHalfCpltCallback</STRONG> (Thumb, 2 bytes, Stack size 0 bytes, stm32f0xx_hal_uart.o(.text.HAL_UART_RxHalfCpltCallback))
 <BR><BR>[Called By]<UL><LI><a href="#[22]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;UART_DMARxHalfCplt
 </UL>
 
@@ -787,7 +798,7 @@ Global Symbols
 <LI><a href="#[21]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;UART_DMATransmitCplt
 </UL>
 
-<P><STRONG><a name="[8e]"></a>HAL_UART_TxHalfCpltCallback</STRONG> (Thumb, 2 bytes, Stack size 0 bytes, stm32f0xx_hal_uart.o(.text.HAL_UART_TxHalfCpltCallback))
+<P><STRONG><a name="[93]"></a>HAL_UART_TxHalfCpltCallback</STRONG> (Thumb, 2 bytes, Stack size 0 bytes, stm32f0xx_hal_uart.o(.text.HAL_UART_TxHalfCpltCallback))
 <BR><BR>[Called By]<UL><LI><a href="#[20]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;UART_DMATxHalfCplt
 </UL>
 
@@ -798,11 +809,11 @@ Global Symbols
 </UL>
 <BR>[Address Reference Count : 1]<UL><LI> startup_stm32f030x6.o(RESET)
 </UL>
-<P><STRONG><a name="[93]"></a>MHZ19_GetCO2</STRONG> (Thumb, 26 bytes, Stack size 0 bytes, mhz19.o(.text.MHZ19_GetCO2))
+<P><STRONG><a name="[97]"></a>MHZ19_GetCO2</STRONG> (Thumb, 26 bytes, Stack size 0 bytes, mhz19.o(.text.MHZ19_GetCO2))
 <BR><BR>[Called By]<UL><LI><a href="#[32]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;main
 </UL>
 
-<P><STRONG><a name="[92]"></a>MHZ19_GetStatus</STRONG> (Thumb, 12 bytes, Stack size 0 bytes, mhz19.o(.text.MHZ19_GetStatus))
+<P><STRONG><a name="[96]"></a>MHZ19_GetStatus</STRONG> (Thumb, 12 bytes, Stack size 0 bytes, mhz19.o(.text.MHZ19_GetStatus))
 <BR><BR>[Called By]<UL><LI><a href="#[32]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;main
 </UL>
 
@@ -815,7 +826,7 @@ Global Symbols
 <BR>[Called By]<UL><LI><a href="#[32]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;main
 </UL>
 
-<P><STRONG><a name="[91]"></a>MHZ19_IsBusy</STRONG> (Thumb, 16 bytes, Stack size 0 bytes, mhz19.o(.text.MHZ19_IsBusy))
+<P><STRONG><a name="[95]"></a>MHZ19_IsBusy</STRONG> (Thumb, 16 bytes, Stack size 0 bytes, mhz19.o(.text.MHZ19_IsBusy))
 <BR><BR>[Called By]<UL><LI><a href="#[32]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;main
 </UL>
 
@@ -866,8 +877,8 @@ Global Symbols
 <BR>[Called By]<UL><LI><a href="#[32]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;main
 </UL>
 
-<P><STRONG><a name="[81]"></a>MX_GPIO_Init</STRONG> (Thumb, 76 bytes, Stack size 48 bytes, gpio.o(.text.MX_GPIO_Init))
-<BR><BR>[Stack]<UL><LI>Max Depth = 108<LI>Call Chain = MX_GPIO_Init &rArr; HAL_GPIO_Init
+<P><STRONG><a name="[81]"></a>MX_GPIO_Init</STRONG> (Thumb, 84 bytes, Stack size 40 bytes, gpio.o(.text.MX_GPIO_Init))
+<BR><BR>[Stack]<UL><LI>Max Depth = 100<LI>Call Chain = MX_GPIO_Init &rArr; HAL_GPIO_Init
 </UL>
 <BR>[Calls]<UL><LI><a href="#[60]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_GPIO_Init
 <LI><a href="#[82]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_GPIO_WritePin
@@ -875,7 +886,7 @@ Global Symbols
 <BR>[Called By]<UL><LI><a href="#[32]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;main
 </UL>
 
-<P><STRONG><a name="[83]"></a>MX_SPI1_Init</STRONG> (Thumb, 68 bytes, Stack size 16 bytes, spi.o(.text.MX_SPI1_Init))
+<P><STRONG><a name="[83]"></a>MX_SPI1_Init</STRONG> (Thumb, 64 bytes, Stack size 16 bytes, spi.o(.text.MX_SPI1_Init))
 <BR><BR>[Stack]<UL><LI>Max Depth = 148<LI>Call Chain = MX_SPI1_Init &rArr; HAL_SPI_Init &rArr; HAL_SPI_MspInit &rArr; HAL_GPIO_Init
 </UL>
 <BR>[Calls]<UL><LI><a href="#[5e]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_SPI_Init
@@ -900,45 +911,61 @@ Global Symbols
 </UL>
 <BR>[Address Reference Count : 1]<UL><LI> startup_stm32f030x6.o(RESET)
 </UL>
-<P><STRONG><a name="[85]"></a>NRF24_CheckConnection</STRONG> (Thumb, 572 bytes, Stack size 56 bytes, nrf24l01.o(.text.NRF24_CheckConnection))
-<BR><BR>[Stack]<UL><LI>Max Depth = 152<LI>Call Chain = NRF24_CheckConnection &rArr; HAL_SPI_TransmitReceive &rArr; SPI_WaitFifoStateUntilTimeout
+<P><STRONG><a name="[85]"></a>NRF24_CheckConnection</STRONG> (Thumb, 130 bytes, Stack size 24 bytes, nrf24l01.o(.text.NRF24_CheckConnection))
+<BR><BR>[Stack]<UL><LI>Max Depth = 160<LI>Call Chain = NRF24_CheckConnection &rArr; NRF_WriteReg &rArr; HAL_SPI_TransmitReceive &rArr; SPI_WaitFifoStateUntilTimeout
 </UL>
-<BR>[Calls]<UL><LI><a href="#[61]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_SPI_TransmitReceive
-<LI><a href="#[82]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_GPIO_WritePin
+<BR>[Calls]<UL><LI><a href="#[87]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF_WriteReg
+<LI><a href="#[86]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF_ReadReg
 </UL>
-<BR>[Called By]<UL><LI><a href="#[86]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_Init
+<BR>[Called By]<UL><LI><a href="#[88]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_Init
 </UL>
 
-<P><STRONG><a name="[86]"></a>NRF24_Init</STRONG> (Thumb, 808 bytes, Stack size 40 bytes, nrf24l01.o(.text.NRF24_Init))
-<BR><BR>[Stack]<UL><LI>Max Depth = 192<LI>Call Chain = NRF24_Init &rArr; NRF24_CheckConnection &rArr; HAL_SPI_TransmitReceive &rArr; SPI_WaitFifoStateUntilTimeout
+<P><STRONG><a name="[88]"></a>NRF24_Init</STRONG> (Thumb, 676 bytes, Stack size 80 bytes, nrf24l01.o(.text.NRF24_Init))
+<BR><BR>[Stack]<UL><LI>Max Depth = 240<LI>Call Chain = NRF24_Init &rArr; NRF24_CheckConnection &rArr; NRF_WriteReg &rArr; HAL_SPI_TransmitReceive &rArr; SPI_WaitFifoStateUntilTimeout
 </UL>
 <BR>[Calls]<UL><LI><a href="#[53]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_Delay
 <LI><a href="#[85]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_CheckConnection
-<LI><a href="#[61]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_SPI_TransmitReceive
 <LI><a href="#[82]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_GPIO_WritePin
 <LI><a href="#[87]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF_WriteReg
-<LI><a href="#[88]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF_Command
+<LI><a href="#[89]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF_Command
+<LI><a href="#[86]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF_ReadReg
 </UL>
 <BR>[Called By]<UL><LI><a href="#[32]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;main
 </UL>
 
-<P><STRONG><a name="[89]"></a>NRF24_Transmit</STRONG> (Thumb, 1272 bytes, Stack size 144 bytes, nrf24l01.o(.text.NRF24_Transmit))
-<BR><BR>[Stack]<UL><LI>Max Depth = 240<LI>Call Chain = NRF24_Transmit &rArr; HAL_SPI_TransmitReceive &rArr; SPI_WaitFifoStateUntilTimeout
+<P><STRONG><a name="[8a]"></a>NRF24_ReadRegister</STRONG> (Thumb, 32 bytes, Stack size 16 bytes, nrf24l01.o(.text.NRF24_ReadRegister))
+<BR><BR>[Stack]<UL><LI>Max Depth = 152<LI>Call Chain = NRF24_ReadRegister &rArr; NRF_ReadReg &rArr; HAL_SPI_TransmitReceive &rArr; SPI_WaitFifoStateUntilTimeout
+</UL>
+<BR>[Calls]<UL><LI><a href="#[86]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF_ReadReg
+</UL>
+<BR>[Called By]<UL><LI><a href="#[32]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;main
+</UL>
+
+<P><STRONG><a name="[8b]"></a>NRF24_Transmit</STRONG> (Thumb, 632 bytes, Stack size 120 bytes, nrf24l01.o(.text.NRF24_Transmit))
+<BR><BR>[Stack]<UL><LI>Max Depth = 256<LI>Call Chain = NRF24_Transmit &rArr; NRF_WriteReg &rArr; HAL_SPI_TransmitReceive &rArr; SPI_WaitFifoStateUntilTimeout
 </UL>
 <BR>[Calls]<UL><LI><a href="#[54]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_GetTick
+<LI><a href="#[53]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_Delay
 <LI><a href="#[61]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_SPI_TransmitReceive
 <LI><a href="#[82]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_GPIO_WritePin
+<LI><a href="#[87]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF_WriteReg
+<LI><a href="#[89]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF_Command
+<LI><a href="#[86]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF_ReadReg
 <LI><a href="#[43]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;__aeabi_memcpy
 </UL>
 <BR>[Called By]<UL><LI><a href="#[32]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;main
 </UL>
 
-<P><STRONG><a name="[8a]"></a>NRF24_TxMode</STRONG> (Thumb, 336 bytes, Stack size 72 bytes, nrf24l01.o(.text.NRF24_TxMode))
-<BR><BR>[Stack]<UL><LI>Max Depth = 168<LI>Call Chain = NRF24_TxMode &rArr; HAL_SPI_TransmitReceive &rArr; SPI_WaitFifoStateUntilTimeout
+<P><STRONG><a name="[8c]"></a>NRF24_TxMode</STRONG> (Thumb, 428 bytes, Stack size 56 bytes, nrf24l01.o(.text.NRF24_TxMode))
+<BR><BR>[Stack]<UL><LI>Max Depth = 216<LI>Call Chain = NRF24_TxMode &rArr; NRF_WriteMulti &rArr; HAL_SPI_TransmitReceive &rArr; SPI_WaitFifoStateUntilTimeout
 </UL>
 <BR>[Calls]<UL><LI><a href="#[53]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_Delay
-<LI><a href="#[61]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_SPI_TransmitReceive
 <LI><a href="#[82]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_GPIO_WritePin
+<LI><a href="#[8e]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF_ReadMulti
+<LI><a href="#[8d]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF_WriteMulti
+<LI><a href="#[87]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF_WriteReg
+<LI><a href="#[86]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF_ReadReg
+<LI><a href="#[8f]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;memcmp
 </UL>
 <BR>[Called By]<UL><LI><a href="#[32]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;main
 </UL>
@@ -952,7 +979,7 @@ Global Symbols
 <P><STRONG><a name="[5]"></a>SysTick_Handler</STRONG> (Thumb, 8 bytes, Stack size 8 bytes, stm32f0xx_it.o(.text.SysTick_Handler))
 <BR><BR>[Stack]<UL><LI>Max Depth = 8<LI>Call Chain = SysTick_Handler
 </UL>
-<BR>[Calls]<UL><LI><a href="#[8b]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_IncTick
+<BR>[Calls]<UL><LI><a href="#[90]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_IncTick
 </UL>
 <BR>[Address Reference Count : 1]<UL><LI> startup_stm32f030x6.o(RESET)
 </UL>
@@ -969,7 +996,7 @@ Global Symbols
 <BR><BR>[Stack]<UL><LI>Max Depth = 72<LI>Call Chain = UART_CheckIdleState &rArr; UART_WaitOnFlagUntilTimeout
 </UL>
 <BR>[Calls]<UL><LI><a href="#[54]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_GetTick
-<LI><a href="#[8c]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;UART_WaitOnFlagUntilTimeout
+<LI><a href="#[91]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;UART_WaitOnFlagUntilTimeout
 </UL>
 <BR>[Called By]<UL><LI><a href="#[6e]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_UART_Init
 </UL>
@@ -977,7 +1004,7 @@ Global Symbols
 <P><STRONG><a name="[71]"></a>UART_SetConfig</STRONG> (Thumb, 276 bytes, Stack size 16 bytes, stm32f0xx_hal_uart.o(.text.UART_SetConfig))
 <BR><BR>[Stack]<UL><LI>Max Depth = 24<LI>Call Chain = UART_SetConfig &rArr; HAL_RCC_GetSysClockFreq
 </UL>
-<BR>[Calls]<UL><LI><a href="#[8f]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_RCC_GetPCLK1Freq
+<BR>[Calls]<UL><LI><a href="#[94]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_RCC_GetPCLK1Freq
 <LI><a href="#[5c]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_RCC_GetSysClockFreq
 <LI><a href="#[52]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;__aeabi_uidiv
 </UL>
@@ -992,7 +1019,7 @@ Global Symbols
 <BR>[Called By]<UL><LI><a href="#[75]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_UART_Receive_DMA
 </UL>
 
-<P><STRONG><a name="[8c]"></a>UART_WaitOnFlagUntilTimeout</STRONG> (Thumb, 318 bytes, Stack size 40 bytes, stm32f0xx_hal_uart.o(.text.UART_WaitOnFlagUntilTimeout))
+<P><STRONG><a name="[91]"></a>UART_WaitOnFlagUntilTimeout</STRONG> (Thumb, 318 bytes, Stack size 40 bytes, stm32f0xx_hal_uart.o(.text.UART_WaitOnFlagUntilTimeout))
 <BR><BR>[Stack]<UL><LI>Max Depth = 40<LI>Call Chain = UART_WaitOnFlagUntilTimeout
 </UL>
 <BR>[Calls]<UL><LI><a href="#[54]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_GetTick
@@ -1007,9 +1034,9 @@ Global Symbols
 </UL>
 <BR>[Address Reference Count : 1]<UL><LI> startup_stm32f030x6.o(RESET)
 </UL>
-<P><STRONG><a name="[32]"></a>main</STRONG> (Thumb, 688 bytes, Stack size 88 bytes, main.o(.text.main))
-<BR><BR>[Stack]<UL><LI>Max Depth = 328 + Unknown Stack Size
-<LI>Call Chain = main &rArr; NRF24_Transmit &rArr; HAL_SPI_TransmitReceive &rArr; SPI_WaitFifoStateUntilTimeout
+<P><STRONG><a name="[32]"></a>main</STRONG> (Thumb, 1220 bytes, Stack size 104 bytes, main.o(.text.main))
+<BR><BR>[Stack]<UL><LI>Max Depth = 360 + Unknown Stack Size
+<LI>Call Chain = main &rArr; NRF24_Transmit &rArr; NRF_WriteReg &rArr; HAL_SPI_TransmitReceive &rArr; SPI_WaitFifoStateUntilTimeout
 </UL>
 <BR>[Calls]<UL><LI><a href="#[84]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;MX_USART1_UART_Init
 <LI><a href="#[83]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;MX_SPI1_Init
@@ -1019,20 +1046,21 @@ Global Symbols
 <LI><a href="#[5b]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_RCC_ClockConfig
 <LI><a href="#[5d]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_RCC_OscConfig
 <LI><a href="#[55]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_Init
-<LI><a href="#[92]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;MHZ19_GetStatus
-<LI><a href="#[93]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;MHZ19_GetCO2
+<LI><a href="#[96]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;MHZ19_GetStatus
+<LI><a href="#[97]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;MHZ19_GetCO2
 <LI><a href="#[7e]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;MHZ19_Process
 <LI><a href="#[7f]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;MHZ19_Request
-<LI><a href="#[91]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;MHZ19_IsBusy
+<LI><a href="#[95]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;MHZ19_IsBusy
 <LI><a href="#[7d]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;MHZ19_IsReady
 <LI><a href="#[7b]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;MHZ19_Init
 <LI><a href="#[54]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_GetTick
-<LI><a href="#[89]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_Transmit
-<LI><a href="#[8a]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_TxMode
+<LI><a href="#[8b]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_Transmit
+<LI><a href="#[8c]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_TxMode
 <LI><a href="#[53]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_Delay
-<LI><a href="#[86]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_Init
-<LI><a href="#[90]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;__aeabi_fadd
+<LI><a href="#[88]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_Init
+<LI><a href="#[8a]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_ReadRegister
 <LI><a href="#[7c]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;__aeabi_memclr4
+<LI><a href="#[47]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;__aeabi_memclr
 <LI><a href="#[38]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;__2snprintf
 </UL>
 <BR>[Called By]<UL><LI><a href="#[31]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;__rt_entry_main
@@ -1047,42 +1075,61 @@ Global Symbols
 </UL>
 
 <P><STRONG><a name="[c9]"></a>__aeabi_idiv</STRONG> (Thumb, 434 bytes, Stack size 8 bytes, aeabi_sdivfast.o(.text_divfast), UNUSED)
-
-<P><STRONG><a name="[90]"></a>__aeabi_fadd</STRONG> (Thumb, 0 bytes, Stack size 16 bytes, faddsub.o(x$fpl$fadd))
-<BR><BR>[Stack]<UL><LI>Max Depth = 16<LI>Call Chain = __aeabi_fadd
-</UL>
-<BR>[Called By]<UL><LI><a href="#[32]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;main
-</UL>
-
-<P><STRONG><a name="[94]"></a>_fadd</STRONG> (Thumb, 134 bytes, Stack size 16 bytes, faddsub.o(x$fpl$fadd), UNUSED)
-<BR><BR>[Calls]<UL><LI><a href="#[95]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;_fsub1
-</UL>
-
-<P><STRONG><a name="[ca]"></a>__aeabi_fsub</STRONG> (Thumb, 0 bytes, Stack size 16 bytes, faddsub.o(x$fpl$fsub), UNUSED)
-
-<P><STRONG><a name="[96]"></a>_fsub</STRONG> (Thumb, 204 bytes, Stack size 16 bytes, faddsub.o(x$fpl$fsub), UNUSED)
-<BR><BR>[Calls]<UL><LI><a href="#[97]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;_fadd1
-</UL>
 <P>
 <H3>
 Local Symbols
 </H3>
-<P><STRONG><a name="[88]"></a>NRF_Command</STRONG> (Thumb, 88 bytes, Stack size 40 bytes, nrf24l01.o(.text.NRF_Command))
+<P><STRONG><a name="[86]"></a>NRF_ReadReg</STRONG> (Thumb, 180 bytes, Stack size 40 bytes, nrf24l01.o(.text.NRF_ReadReg))
+<BR><BR>[Stack]<UL><LI>Max Depth = 136<LI>Call Chain = NRF_ReadReg &rArr; HAL_SPI_TransmitReceive &rArr; SPI_WaitFifoStateUntilTimeout
+</UL>
+<BR>[Calls]<UL><LI><a href="#[61]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_SPI_TransmitReceive
+<LI><a href="#[82]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_GPIO_WritePin
+</UL>
+<BR>[Called By]<UL><LI><a href="#[8b]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_Transmit
+<LI><a href="#[8c]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_TxMode
+<LI><a href="#[88]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_Init
+<LI><a href="#[85]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_CheckConnection
+<LI><a href="#[8a]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_ReadRegister
+</UL>
+
+<P><STRONG><a name="[89]"></a>NRF_Command</STRONG> (Thumb, 156 bytes, Stack size 40 bytes, nrf24l01.o(.text.NRF_Command))
 <BR><BR>[Stack]<UL><LI>Max Depth = 136<LI>Call Chain = NRF_Command &rArr; HAL_SPI_TransmitReceive &rArr; SPI_WaitFifoStateUntilTimeout
 </UL>
 <BR>[Calls]<UL><LI><a href="#[61]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_SPI_TransmitReceive
 <LI><a href="#[82]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_GPIO_WritePin
 </UL>
-<BR>[Called By]<UL><LI><a href="#[86]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_Init
+<BR>[Called By]<UL><LI><a href="#[8b]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_Transmit
+<LI><a href="#[88]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_Init
 </UL>
 
-<P><STRONG><a name="[87]"></a>NRF_WriteReg</STRONG> (Thumb, 96 bytes, Stack size 32 bytes, nrf24l01.o(.text.NRF_WriteReg))
-<BR><BR>[Stack]<UL><LI>Max Depth = 128<LI>Call Chain = NRF_WriteReg &rArr; HAL_SPI_TransmitReceive &rArr; SPI_WaitFifoStateUntilTimeout
+<P><STRONG><a name="[87]"></a>NRF_WriteReg</STRONG> (Thumb, 164 bytes, Stack size 40 bytes, nrf24l01.o(.text.NRF_WriteReg))
+<BR><BR>[Stack]<UL><LI>Max Depth = 136<LI>Call Chain = NRF_WriteReg &rArr; HAL_SPI_TransmitReceive &rArr; SPI_WaitFifoStateUntilTimeout
 </UL>
 <BR>[Calls]<UL><LI><a href="#[61]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_SPI_TransmitReceive
 <LI><a href="#[82]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_GPIO_WritePin
 </UL>
-<BR>[Called By]<UL><LI><a href="#[86]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_Init
+<BR>[Called By]<UL><LI><a href="#[8b]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_Transmit
+<LI><a href="#[8c]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_TxMode
+<LI><a href="#[88]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_Init
+<LI><a href="#[85]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_CheckConnection
+</UL>
+
+<P><STRONG><a name="[8d]"></a>NRF_WriteMulti</STRONG> (Thumb, 268 bytes, Stack size 64 bytes, nrf24l01.o(.text.NRF_WriteMulti))
+<BR><BR>[Stack]<UL><LI>Max Depth = 160<LI>Call Chain = NRF_WriteMulti &rArr; HAL_SPI_TransmitReceive &rArr; SPI_WaitFifoStateUntilTimeout
+</UL>
+<BR>[Calls]<UL><LI><a href="#[61]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_SPI_TransmitReceive
+<LI><a href="#[82]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_GPIO_WritePin
+</UL>
+<BR>[Called By]<UL><LI><a href="#[8c]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_TxMode
+</UL>
+
+<P><STRONG><a name="[8e]"></a>NRF_ReadMulti</STRONG> (Thumb, 240 bytes, Stack size 56 bytes, nrf24l01.o(.text.NRF_ReadMulti))
+<BR><BR>[Stack]<UL><LI>Max Depth = 152<LI>Call Chain = NRF_ReadMulti &rArr; HAL_SPI_TransmitReceive &rArr; SPI_WaitFifoStateUntilTimeout
+</UL>
+<BR>[Calls]<UL><LI><a href="#[61]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_SPI_TransmitReceive
+<LI><a href="#[82]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_GPIO_WritePin
+</UL>
+<BR>[Called By]<UL><LI><a href="#[8c]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;NRF24_TxMode
 </UL>
 
 <P><STRONG><a name="[62]"></a>SPI_WaitFifoStateUntilTimeout</STRONG> (Thumb, 224 bytes, Stack size 56 bytes, stm32f0xx_hal_spi.o(.text.SPI_WaitFifoStateUntilTimeout))
@@ -1112,7 +1159,7 @@ Local Symbols
 <P><STRONG><a name="[20]"></a>UART_DMATxHalfCplt</STRONG> (Thumb, 10 bytes, Stack size 8 bytes, stm32f0xx_hal_uart.o(.text.UART_DMATxHalfCplt))
 <BR><BR>[Stack]<UL><LI>Max Depth = 8<LI>Call Chain = UART_DMATxHalfCplt
 </UL>
-<BR>[Calls]<UL><LI><a href="#[8e]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_UART_TxHalfCpltCallback
+<BR>[Calls]<UL><LI><a href="#[93]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_UART_TxHalfCpltCallback
 </UL>
 <BR>[Address Reference Count : 1]<UL><LI> stm32f0xx_hal_uart.o(.text.HAL_UART_Transmit_DMA)
 </UL>
@@ -1126,7 +1173,7 @@ Local Symbols
 <P><STRONG><a name="[22]"></a>UART_DMARxHalfCplt</STRONG> (Thumb, 32 bytes, Stack size 8 bytes, stm32f0xx_hal_uart.o(.text.UART_DMARxHalfCplt))
 <BR><BR>[Stack]<UL><LI>Max Depth = 8<LI>Call Chain = UART_DMARxHalfCplt
 </UL>
-<BR>[Calls]<UL><LI><a href="#[8d]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_UART_RxHalfCpltCallback
+<BR>[Calls]<UL><LI><a href="#[92]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_UART_RxHalfCpltCallback
 <LI><a href="#[6c]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_UARTEx_RxEventCallback
 </UL>
 <BR>[Address Reference Count : 1]<UL><LI> stm32f0xx_hal_uart.o(.text.UART_Start_Receive_DMA)
@@ -1146,14 +1193,6 @@ Local Symbols
 </UL>
 <BR>[Address Reference Count : 1]<UL><LI> stm32f0xx_hal_uart.o(.text.HAL_UART_IRQHandler)
 </UL>
-<P><STRONG><a name="[97]"></a>_fadd1</STRONG> (Thumb, 0 bytes, Stack size unknown bytes, faddsub.o(x$fpl$fadd), UNUSED)
-<BR><BR>[Called By]<UL><LI><a href="#[96]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;_fsub
-</UL>
-
-<P><STRONG><a name="[95]"></a>_fsub1</STRONG> (Thumb, 0 bytes, Stack size unknown bytes, faddsub.o(x$fpl$fsub), UNUSED)
-<BR><BR>[Called By]<UL><LI><a href="#[94]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;_fadd
-</UL>
-
 <P><STRONG><a name="[1d]"></a>_printf_input_char</STRONG> (Thumb, 10 bytes, Stack size 0 bytes, _printf_char_common.o(.text))
 <BR>[Address Reference Count : 1]<UL><LI> _printf_char_common.o(.text)
 </UL><P>

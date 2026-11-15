@@ -158,17 +158,27 @@
         <Ww>
           <count>1</count>
           <WinNumber>1</WinNumber>
-          <ItemText>watch_spi_status</ItemText>
+          <ItemText>watch_nrf_initialized</ItemText>
         </Ww>
         <Ww>
           <count>2</count>
           <WinNumber>1</WinNumber>
-          <ItemText>watch_nrf_initialized</ItemText>
+          <ItemText>watch_nrf_config_ok</ItemText>
         </Ww>
         <Ww>
           <count>3</count>
           <WinNumber>1</WinNumber>
-          <ItemText>watch_spi_errors</ItemText>
+          <ItemText>watch_nrf_detected</ItemText>
+        </Ww>
+        <Ww>
+          <count>4</count>
+          <WinNumber>1</WinNumber>
+          <ItemText>watch_spi_last_transfer_ok</ItemText>
+        </Ww>
+        <Ww>
+          <count>5</count>
+          <WinNumber>1</WinNumber>
+          <ItemText>watch_nrf_link_ack</ItemText>
         </Ww>
       </WatchWindow1>
       <Tracepoint>
