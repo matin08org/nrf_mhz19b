@@ -122,6 +122,7 @@ MHZ19_Status MHZ19_Request(MHZ19_Handle *sensor)
     {
         sensor->state = MHZ19_STATE_IDLE;
         sensor->status = MHZ19_STATUS_UART_ERROR;
+        sensor->uart_errors++;
         return sensor->status;
     }
 
@@ -133,6 +134,7 @@ MHZ19_Status MHZ19_Request(MHZ19_Handle *sensor)
         MHZ19_AbortTransfers(sensor);
         sensor->state = MHZ19_STATE_IDLE;
         sensor->status = MHZ19_STATUS_UART_ERROR;
+        sensor->uart_errors++;
         return sensor->status;
     }
 
@@ -153,20 +155,29 @@ void MHZ19_Process(MHZ19_Handle *sensor)
         MHZ19_AbortTransfers(sensor);
         sensor->state = MHZ19_STATE_IDLE;
         sensor->status = MHZ19_STATUS_UART_ERROR;
+        sensor->uart_errors++;
         return;
     }
 
     if (sensor->state == MHZ19_STATE_RX_DONE)
     {
         r = sensor->rx_buffer;
+        memcpy(sensor->last_frame,r,MHZ19_FRAME_SIZE);
+        sensor->frames_received++;
+        sensor->last_received_tick=HAL_GetTick();
+        sensor->last_frame_ppm=(uint16_t)(((uint16_t)r[2]<<8)|r[3]);
+        sensor->last_frame_header_ok=(r[0]==0xFFU&&r[1]==0x86U);
+        sensor->last_frame_checksum_ok=(MHZ19_Checksum(r)==r[8]);
 
         if ((r[0] != 0xFFU) || (r[1] != 0x86U))
         {
             sensor->status = MHZ19_STATUS_BAD_HEADER;
+            sensor->bad_headers++;
         }
         else if (MHZ19_Checksum(r) != r[8])
         {
             sensor->status = MHZ19_STATUS_BAD_CHECKSUM;
+            sensor->bad_checksums++;
         }
         else
         {
@@ -175,6 +186,7 @@ void MHZ19_Process(MHZ19_Handle *sensor)
             sensor->new_measurement = 1U;
             sensor->last_success_tick = HAL_GetTick();
             sensor->status = MHZ19_STATUS_OK;
+            sensor->valid_frames++;
         }
 
         sensor->state = MHZ19_STATE_IDLE;
@@ -187,6 +199,7 @@ void MHZ19_Process(MHZ19_Handle *sensor)
         MHZ19_AbortTransfers(sensor);
         sensor->state = MHZ19_STATE_IDLE;
         sensor->status = MHZ19_STATUS_TIMEOUT;
+        sensor->timeouts++;
     }
 }
 
