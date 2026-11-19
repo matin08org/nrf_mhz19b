@@ -20,6 +20,9 @@ static uint32_t test_tag,test_events,test_tick;
 volatile uint32_t watch_counter,watch_millis,watch_request_count,watch_response_count;
 volatile uint16_t watch_co2;
 volatile uint8_t watch_report_valid,watch_sensor_status;
+volatile uint16_t watch_uart_ppm;
+volatile uint8_t watch_uart_header_ok,watch_uart_checksum_ok;
+volatile uint32_t watch_uart_frames,watch_valid_frames,watch_sample_age_ms;
 volatile uint8_t watch_nrf_initialized,watch_nrf_link_ack,watch_nrf_tx_result;
 volatile uint8_t watch_nrf_test_request,watch_nrf_test_done,watch_nrf_test_result;
 
@@ -158,6 +161,12 @@ int main(void)
         CO2_Process(); NRF_Process();
         watch_counter++; watch_millis=HAL_GetTick(); watch_co2=report_ppm;
         watch_report_valid=report_valid; watch_sensor_status=(uint8_t)report_status;
+        watch_uart_ppm=co2_sensor.last_frame_ppm;
+        watch_uart_header_ok=co2_sensor.last_frame_header_ok;
+        watch_uart_checksum_ok=co2_sensor.last_frame_checksum_ok;
+        watch_uart_frames=co2_sensor.frames_received;
+        watch_valid_frames=co2_sensor.valid_frames;
+        watch_sample_age_ms=co2_sensor.has_valid_measurement?(uint32_t)(HAL_GetTick()-co2_sensor.last_success_tick):UINT32_MAX;
         watch_nrf_initialized=radio.ready;
         watch_nrf_link_ack=radio.last_tx_result==NRF24_TX_ACK;
         watch_nrf_tx_result=(uint8_t)radio.last_tx_result;

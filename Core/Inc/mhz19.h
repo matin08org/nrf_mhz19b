@@ -49,6 +49,13 @@ typedef struct
     uint8_t has_valid_measurement;
     uint8_t new_measurement;
     uint32_t last_success_tick;
+    /* Stable copy of the last completed UART frame, for debugger diagnosis.
+     * Never read rx_buffer while DMA is filling it to diagnose saturation. */
+    uint8_t last_frame[MHZ19_FRAME_SIZE];
+    uint32_t frames_received,valid_frames,bad_headers,bad_checksums;
+    uint32_t timeouts,uart_errors,last_received_tick;
+    uint16_t last_frame_ppm;
+    uint8_t last_frame_header_ok,last_frame_checksum_ok;
 
     uint32_t init_tick;
     uint32_t request_tick;
